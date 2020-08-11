@@ -15,6 +15,12 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
     {
         return {};
     }
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx(file_handle, &file_size))
+    {
+        CloseHandle(file_handle);
+        return {};
+    }
     void *file_map_handle = CreateFileMapping(file_handle, NULL, PAGE_READONLY, 0, 0, lpcstr.c_str());
     if (file_map_handle == NULL)
     {
@@ -28,14 +34,15 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
         CloseHandle(file_handle);
         return {};
     }
-    return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle}};
+    return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle, file_size.QuadPart}};
 }
 
 std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)
 {
     constexpr const char *bootstrap = "oops";
+    constexpr const char *ending = ".boops";
     std::string lpcstr;
-    if (name.length() - std::strlen(".coops") > std::strlen(bootstrap) && std::memcmp(bootstrap, name.c_str(), std::strlen(bootstrap)))
+    if (name.length() - std::strlen(ending) > std::strlen(bootstrap) && std::memcmp(bootstrap, name.c_str(), std::strlen(bootstrap)))
     {
         lpcstr += platform::get_executable_path();
     }
@@ -43,7 +50,7 @@ std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)
     {
         lpcstr += platform::get_working_path();
     }
-    lpcstr.reserve(lpcstr.length() + name.length() + sizeof(".coops"));
+    lpcstr.reserve(lpcstr.length() + name.length() + sizeof(ending));
     for (char c : name)
     {
         if (c == '.')
@@ -55,7 +62,7 @@ std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)
             lpcstr += c;
         }
     }
-    lpcstr += ".coops";
+    lpcstr += ending;
     return lpcstr;
 }
 

@@ -11,6 +11,7 @@ namespace oops_bcode_compiler
             char* mmapped_file;
             void* _file_map_handle;
             void* _file_handle;
+            std::size_t file_size;
         };
 
         std::optional<file_mapping> open_class_file_mapping(std::string name);
