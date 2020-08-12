@@ -34,7 +34,7 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
         CloseHandle(file_handle);
         return {};
     }
-    return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle, file_size.QuadPart}};
+    return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle, static_cast<std::size_t>(file_size.QuadPart)}};
 }
 
 std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)

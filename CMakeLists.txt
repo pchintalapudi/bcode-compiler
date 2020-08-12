@@ -12,7 +12,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -O0 -Wextra -Wall -Winit-self
 
 add_executable(oops-bcode-compiler main.cpp)
 add_subdirectory(platform_specific)
-add_subdirectory(lexer)
+add_subdirectory(parser)
+add_subdirectory(instructions)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
