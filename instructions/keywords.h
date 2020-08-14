@@ -88,6 +88,9 @@ namespace oops_bcode_compiler
             IVAR,
             SVAR,
             DEF,
+            PASS,
+            ARG,
+            LBL,
             PROC,
             CLZ,
             __COUNT__
@@ -176,6 +179,9 @@ namespace oops_bcode_compiler
             stringize(IVAR);
             stringize(SVAR);
             stringize(DEF);
+            stringize(PASS);
+            stringize(ARG);
+            stringize(LBL);
             stringize(PROC);
             stringize(CLZ);
 #undef put
@@ -193,7 +199,7 @@ namespace oops_bcode_compiler
             }
             return ret;
         }
-        
+
         std::unordered_map<std::string, keyword> string_to_keywords = generate_string_to_keyword();
 
     } // namespace keywords

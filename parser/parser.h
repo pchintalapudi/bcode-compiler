@@ -10,23 +10,20 @@
 
 namespace oops_bcode_compiler
 {
-    namespace lexer
+    namespace parsing
     {
 
         struct cls
         {
+            std::string name;
             std::vector<std::string> imports;
             struct variable
             {
                 std::size_t import_index;
                 std::string name;
-                keywords::keyword type;
             };
             std::vector<variable> static_variables, instance_variables;
-            struct method {
-                std::size_t import_index;
-                std::string name;
-            };
+            typedef variable method;
             std::vector<method> methods;
             struct instruction {
                 std::string dest;
