@@ -15,14 +15,15 @@ namespace oops_bcode_compiler
 
         struct cls
         {
-            std::string name;
+            std::size_t implement_count;
+            std::size_t static_method_count;
             std::vector<std::string> imports;
             struct variable
             {
-                std::size_t import_index;
+                std::string host_name;
                 std::string name;
             };
-            std::vector<variable> static_variables, instance_variables;
+            std::vector<variable> static_variables, instance_variables, self_statics, self_instances;
             typedef variable method;
             std::vector<method> methods;
             struct instruction {
@@ -32,7 +33,7 @@ namespace oops_bcode_compiler
                 keywords::keyword itype;
             };
             struct procedure {
-                std::size_t return_import_index;
+                std::string return_type_name;
                 std::vector<variable> parameters;
                 std::vector<instruction> instructions;
             };

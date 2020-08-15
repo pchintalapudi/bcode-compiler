@@ -124,18 +124,40 @@ namespace
         break;                                                                                   \
     }
 #define parse_helper(type) std::variant<std::pair<char *, std::size_t>, std::string> parse_##type(char *current, char *end, oops_bcode_compiler::parsing::cls &cls, std::size_t line_number, std::size_t column_number, std::stringstream &error_builder)
+    parse_helper(extends)
+    {
+        if (cls.imports.size() != 7)
+        {
+            parsing_error("Non-extended class already defined!");
+        }
+        cls.implement_count++;
+        return parse_import(current, end, cls, line_number, column_number, error_builder);
+    }
+    parse_helper(implements)
+    {
+        if (cls.imports.size() != 6 + cls.implement_count + 1)
+        {
+            parsing_error("Non-extended class already defined!");
+        }
+        cls.implement_count++;
+        return parse_import(current, end, cls, line_number, column_number, error_builder);
+    }
+
     parse_helper(import)
     {
         skip_whitespace;
         guard_end;
-        if (std::isdigit(*current))
+        if (*current == '#')
         {
-            parse_unsigned_index(import_index);
+            current++;
             guard_end;
-            if (!std::isspace(*current))
-            {
-                parsing_error("Unexpected non-digit character while parsing import index!");
+            if (std::isspace(*current)) {
+                skip_whitespace;
+                guard_end;
             }
+            std::string import_name;
+            parse_word(import_name);
+            guard_end;
             skip_whitespace;
             guard_end;
             std::string keyword_builder;
@@ -151,19 +173,19 @@ namespace
                 {
                 case oops_bcode_compiler::keywords::keyword::PROC:
                 {
-                    cls.methods.push_back({import_index, ""});
+                    cls.methods.push_back({import_name, ""});
                     builder_ptr = &cls.methods.back().name;
                     break;
                 }
                 case oops_bcode_compiler::keywords::keyword::IVAR:
                 {
-                    cls.instance_variables.push_back({import_index, ""});
+                    cls.instance_variables.push_back({import_name, ""});
                     builder_ptr = &cls.instance_variables.back().name;
                     break;
                 }
                 case oops_bcode_compiler::keywords::keyword::SVAR:
                 {
-                    cls.methods.push_back({import_index, ""});
+                    cls.methods.push_back({import_name, ""});
                     builder_ptr = &cls.static_variables.back().name;
                     break;
                 }
@@ -196,7 +218,8 @@ namespace
         {
             parsing_error("Unexpected non-digit character!");
         }
-        parse_unsigned_index(import_index);
+        std::string import_name;
+        parse_word(import_name);
         guard_end;
         if (!std::isspace(*current))
         {
@@ -204,8 +227,8 @@ namespace
         }
         skip_whitespace;
         guard_end;
-        cls.instance_variables.push_back({import_index, ""});
-        parse_word(cls.instance_variables.back().name);
+        cls.self_instances.push_back({import_name, ""});
+        parse_word(cls.self_instances.back().name);
         last_word_cleanup(instance_variable);
     }
 
@@ -217,7 +240,8 @@ namespace
         {
             parsing_error("Unexpected non-digit character");
         }
-        parse_unsigned_index(import_index);
+        std::string import_name;
+        parse_word(import_name);
         guard_end;
         if (!std::isspace(*current))
         {
@@ -225,16 +249,21 @@ namespace
         }
         skip_whitespace;
         guard_end;
-        cls.static_variables.push_back({import_index, ""});
-        parse_word(cls.static_variables.back().name);
-        last_word_cleanup(instance_variable);
+        cls.self_statics.push_back({import_name, ""});
+        parse_word(cls.self_statics.back().name);
+        last_word_cleanup(static_variable);
     }
 
     parse_helper(class)
     {
         skip_whitespace;
         guard_end;
-        parse_word(cls.name);
+        if (cls.imports.size() != 6)
+        {
+            parsing_error("Extra imports before class name!");
+        }
+        cls.imports.push_back("");
+        parse_word(cls.imports.back());
         last_word_cleanup(class);
     }
 
@@ -362,7 +391,8 @@ namespace
             {
                 skip_whitespace;
                 guard_end;
-                parse_unsigned_index(import_index);
+                std::string import_name;
+                parse_word(import_name);
                 guard_end;
                 if (!std::isspace(*current))
                 {
@@ -370,7 +400,7 @@ namespace
                 }
                 skip_whitespace;
                 guard_end;
-                cls.self_methods.back().parameters.push_back({import_index, ""});
+                cls.self_methods.back().parameters.push_back({import_name, ""});
                 parse_word(cls.self_methods.back().parameters.back().name);
                 last_word_cleanup(instruction);
             }
@@ -384,21 +414,28 @@ namespace
         }
     }
 
+    parse_helper(static_procedure)
+    {
+        cls.static_method_count++;
+        return parse_procedure(current, end, cls, line_number, column_number, error_builder);
+    }
+
     parse_helper(procedure)
     {
         skip_whitespace;
         guard_end;
-        parse_unsigned_index(return_import_index);
+        std::string return_class_name;
+        parse_word(return_class_name);
         guard_end;
         if (!std::isspace(*current))
         {
             parsing_error("Unexpected non-digit character while parsing import index!");
         }
         skip_whitespace;
-        cls.methods.push_back({6, ""});
+        cls.methods.push_back({cls.imports[6], ""});
         parse_word(cls.methods.back().name);
         last_word(procedure, current++);
-        cls.self_methods.push_back({return_import_index, {}, {}});
+        cls.self_methods.push_back({return_class_name, {}, {}});
         std::variant<std::pair<char *, std::size_t>, std::string, int> next = std::pair{current, line_number + 1};
         do
         {
@@ -431,6 +468,11 @@ std::variant<cls, std::string> parser::parse()
         return "File was not opened!";
     }
     cls ret;
+    for (auto imp : {"char", "short", "int", "long", "float", "double"})
+    {
+        ret.imports.emplace_back(imp);
+    }
+    ret.implement_count = ret.static_method_count = 0;
     std::stringstream error_builder;
     std::string keyword_builder;
     char *current = this->mapping.mmapped_file, *end = current + this->mapping.file_size;
@@ -454,6 +496,9 @@ std::variant<cls, std::string> parser::parse()
                 dispatch(IVAR, instance_variable);
                 dispatch(SVAR, static_variable);
                 dispatch(PROC, procedure);
+                dispatch(SPROC, static_procedure);
+                dispatch(EXT, extends);
+                dispatch(IMPL, implements);
             default:
                 parsing_error("Keyword '" << keyword_builder << "' is not a class-level keyword!");
             }

@@ -92,11 +92,14 @@ namespace oops_bcode_compiler
             ARG,
             LBL,
             PROC,
+            SPROC,
+            EXT,
+            IMPL,
             CLZ,
             __COUNT__
         };
 
-        std::array<std::string, static_cast<unsigned>(keyword::__COUNT__)> generate_keyword_to_string()
+        inline std::array<std::string, static_cast<unsigned>(keyword::__COUNT__)> generate_keyword_to_string()
         {
             std::array<std::string, static_cast<unsigned>(keyword::__COUNT__)> ret;
             std::fill(ret.begin(), ret.end(), "UNKNOWN");
@@ -183,14 +186,17 @@ namespace oops_bcode_compiler
             stringize(ARG);
             stringize(LBL);
             stringize(PROC);
+            stringize(SPROC);
+            stringize(EXT);
+            stringize(IMPL);
             stringize(CLZ);
 #undef put
             return ret;
         }
 
-        std::array<std::string, static_cast<unsigned>(keyword::__COUNT__)> keyword_to_string = generate_keyword_to_string();
+        inline std::array<std::string, static_cast<unsigned>(keyword::__COUNT__)> keyword_to_string = generate_keyword_to_string();
 
-        std::unordered_map<std::string, keyword> generate_string_to_keyword()
+        inline std::unordered_map<std::string, keyword> generate_string_to_keyword()
         {
             std::unordered_map<std::string, keyword> ret;
             for (auto i = 0u; i < keyword_to_string.size(); i++)
@@ -200,7 +206,7 @@ namespace oops_bcode_compiler
             return ret;
         }
 
-        std::unordered_map<std::string, keyword> string_to_keywords = generate_string_to_keyword();
+        inline std::unordered_map<std::string, keyword> string_to_keywords = generate_string_to_keyword();
 
     } // namespace keywords
 } // namespace oops_bcode_compiler
