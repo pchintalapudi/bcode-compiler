@@ -16,6 +16,8 @@ namespace oops_bcode_compiler
 
         std::optional<file_mapping> open_class_file_mapping(std::string name);
 
+        std::optional<file_mapping> create_class_file(std::string name);
+
         std::string normalize_file_name(std::string name);
 
         void close_file_mapping(file_mapping fm);

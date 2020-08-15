@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -142,6 +143,7 @@ namespace
             guard_end;
             skip_whitespace;
             guard_end;
+            std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
             if (auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(keyword_builder); keyword != oops_bcode_compiler::keywords::string_to_keywords.end())
             {
                 std::string *builder_ptr;
@@ -243,6 +245,7 @@ namespace
         parse_word(keyword_builder);
         guard_end;
         typedef oops_bcode_compiler::keywords::keyword kw;
+        std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
         if (auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(keyword_builder); keyword != oops_bcode_compiler::keywords::string_to_keywords.end())
         {
             switch (keyword->second)
@@ -392,6 +395,8 @@ namespace
             parsing_error("Unexpected non-digit character while parsing import index!");
         }
         skip_whitespace;
+        cls.methods.push_back({6, ""});
+        parse_word(cls.methods.back().name);
         last_word(procedure, current++);
         cls.self_methods.push_back({return_import_index, {}, {}});
         std::variant<std::pair<char *, std::size_t>, std::string, int> next = std::pair{current, line_number + 1};
@@ -439,6 +444,7 @@ std::variant<cls, std::string> parser::parse()
         }
         parse_word(keyword_builder);
         guard_end;
+        std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
         if (auto keyword = keywords::string_to_keywords.find(keyword_builder); keyword != keywords::string_to_keywords.end())
         {
             switch (keyword->second)

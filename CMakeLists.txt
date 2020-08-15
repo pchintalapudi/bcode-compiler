@@ -14,6 +14,8 @@ add_executable(oops-bcode-compiler main.cpp)
 add_subdirectory(platform_specific)
 add_subdirectory(parser)
 add_subdirectory(instructions)
+add_subdirectory(interpreter)
+add_subdirectory(utils)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})

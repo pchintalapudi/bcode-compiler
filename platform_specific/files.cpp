@@ -37,6 +37,24 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
     return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle, static_cast<std::size_t>(file_size.QuadPart)}};
 }
 
+std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std::string name, std::size_t file_size)
+{
+    std::string lpcstr = normalize_file_name(name);
+    if (void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL); file_handle != NULL)
+    {
+        if (void *file_mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READWRITE, file_size & (~static_cast<std::size_t>(0) >> (CHAR_BIT * sizeof(DWORD))), file_size >> (CHAR_BIT * sizeof(DWORD)), lpcstr.c_str()); file_mapping_handle != NULL)
+        {
+            if (void *mmap_handle = MapViewOfFile(file_mapping_handle, FILE_MAP_WRITE, 0, 0, 0); mmap_handle != NULL)
+            {
+                return file_mapping{static_cast<char *>(mmap_handle), file_mapping_handle, file_handle, file_size};
+            }
+            CloseHandle(file_mapping_handle);
+        }
+        CloseHandle(file_handle);
+    }
+    return {};
+}
+
 std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)
 {
     constexpr const char *bootstrap = "oops";
