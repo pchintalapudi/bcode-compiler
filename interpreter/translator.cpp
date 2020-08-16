@@ -8,6 +8,7 @@
 #include "../platform_specific/files.h"
 #include "../utils/puns.h"
 #include "../utils/hashing.h"
+#include "../compiler/compiler.h"
 
 using namespace oops_bcode_compiler::transformer;
 
@@ -18,63 +19,17 @@ namespace
         return 0;
     }
 
-    enum class thunk_type
-    {
-        CLASS,
-        METHOD,
-        SVAR,
-        IVAR
-    };
-
-    enum class location
-    {
-        DEST,
-        SRC1,
-        SRC2,
-        IMM24,
-        IMM32
-    };
-
-    struct thunk
-    {
-        std::string name;
-        std::uint32_t instruction_idx;
-        std::uint32_t class_index;
-        location rewrite_location;
-        thunk_type type;
-    };
-
-    struct method
-    {
-        std::vector<std::uint64_t> instructions;
-        std::vector<thunk> thunks;
-        std::uint64_t name_offset;
-        std::vector<std::uint16_t> handle_map;
-        std::uint16_t stack_size;
-        std::uint8_t return_type;
-        std::uint8_t method_type;
-        std::uint16_t arg_count;
-        std::vector<std::uint8_t> arg_types;
-        std::uint64_t size;
-    };
-
-    method compile(const oops_bcode_compiler::parsing::cls::procedure &procedure)
-    {
-        ::method mtd;
-        return mtd;
-    }
-
-    std::size_t dethunk(thunk &t, std::size_t thunked, std::uint64_t value)
+    std::size_t dethunk(oops_bcode_compiler::compiler::thunk &t, std::size_t thunked, std::uint64_t value)
     {
         switch (t.rewrite_location)
         {
-        case location::DEST:
+        case oops_bcode_compiler::compiler::location::DEST:
             return thunked | value;
-        case location::IMM32:
-        case location::SRC1:
+        case oops_bcode_compiler::compiler::location::IMM32:
+        case oops_bcode_compiler::compiler::location::SRC1:
             return thunked | value << sizeof(std::uint16_t) * CHAR_BIT;
-        case location::IMM24:
-        case location::SRC2:
+        case oops_bcode_compiler::compiler::location::IMM24:
+        case oops_bcode_compiler::compiler::location::SRC2:
             return thunked | value << sizeof(std::uint16_t) * 2 * CHAR_BIT;
         }
     }
@@ -88,8 +43,8 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
     statics_offset = methods_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.methods.size();
     instances_offset = statics_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.static_variables.size();
     bytecode_offset = instances_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.instance_variables.size();
-    std::vector<::method> compiled_methods;
-    std::transform(cls.self_methods.begin(), cls.self_methods.end(), std::back_inserter(compiled_methods), ::compile);
+    std::vector<compiler::method> compiled_methods;
+    std::transform(cls.self_methods.begin(), cls.self_methods.end(), std::back_inserter(compiled_methods), compiler::compile);
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
     std::uint64_t cls_size = string_offset + string_pool_size(cls);
     if (auto maybe_cls = platform::create_class_file(cls.imports[6], cls_size))
@@ -122,7 +77,8 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
         auto bmethod = compiled_methods.begin();
         for (auto method = cls.methods.begin(); method != cls.methods.end(); ++method)
         {
-            if ((method_indexes[{method->name, class_indexes[method->host_name]}] = method - cls.methods.begin()) == 6) {
+            if ((method_indexes[{method->name, class_indexes[method->host_name]}] = method - cls.methods.begin()) == 6)
+            {
                 bmethod->name_offset = current_string_offset;
             }
             utils::pun_write(base_head, class_indexes[method->host_name]);
@@ -157,36 +113,82 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
             std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, ivar->name.c_str(), ivar->name.size());
             current_string_offset += ivar->name.size() + sizeof(std::uint32_t);
         }
-        utils::pun_write()
+        utils::pun_write(base_head, string_offset - bytecode_offset);
+        base_head += sizeof(std::uint64_t);
         for (auto &method : compiled_methods)
         {
             for (auto &thunk : method.thunks)
             {
                 switch (thunk.type)
                 {
-                case thunk_type::CLASS:
+                case oops_bcode_compiler::compiler::thunk_type::CLASS:
                 {
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], class_indexes[thunk.name]);
                     break;
                 }
-                case thunk_type::METHOD:
+                case oops_bcode_compiler::compiler::thunk_type::METHOD:
                 {
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], method_indexes[{thunk.name, thunk.class_index}]);
                     break;
                 }
-                case thunk_type::IVAR:
+                case oops_bcode_compiler::compiler::thunk_type::IVAR:
                 {
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], instance_indexes[{thunk.name, thunk.class_index}]);
                     break;
                 }
-                case thunk_type::SVAR:
+                case oops_bcode_compiler::compiler::thunk_type::SVAR:
                 {
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], static_indexes[{thunk.name, thunk.class_index}]);
                     break;
                 }
                 }
+                utils::pun_write<std::uint64_t>(base_head, method.size);
+                base_head += sizeof(std::uint64_t);
+                utils::pun_write<std::uint16_t>(base_head, method.instructions.size());
+                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t), method.stack_size);
+                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 2, method.return_type | method.method_type << 4);
+                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 3, method.arg_types.size());
+                base_head += sizeof(std::uint16_t) * 4;
+                std::uint8_t builder = 0;
+                bool built = true;
+                for (auto arg_type : method.arg_types)
+                {
+                    builder >>= 4;
+                    builder |= arg_type << 4;
+                    if ((built = !built))
+                    {
+                        utils::pun_write(base_head, builder);
+                        base_head += sizeof(builder);
+                        builder = 0;
+                    }
+                }
+                if (!built)
+                {
+                    builder >>= 4;
+                    utils::pun_write(base_head, builder);
+                    base_head += sizeof(builder);
+                }
+                std::size_t skip = (method.arg_types.size() + 1) / 2;
+                skip = (sizeof(std::uint64_t) - skip % sizeof(std::uint64_t)) % sizeof(std::uint64_t);
+                base_head += skip;
+                for (auto instruction : method.instructions)
+                {
+                    utils::pun_write(base_head, instruction);
+                    base_head += sizeof(instruction);
+                }
+                utils::pun_write<std::uintptr_t>(base_head, 0);
+                base_head += sizeof(std::uintptr_t);
+                utils::pun_write<std::uint16_t>(base_head, method.handle_map.size());
+                base_head += sizeof(std::uint16_t);
+                for (auto handle : method.handle_map)
+                {
+                    utils::pun_write(base_head, handle);
+                    base_head += sizeof(handle);
+                }
+                skip = (method.handle_map.size() + 1) * sizeof(std::uint16_t);
+                skip = (sizeof(std::uint64_t) - skip % sizeof(std::uint64_t)) % sizeof(std::uint64_t);
+                base_head += skip;
             }
-
         }
         platform::close_file_mapping(*maybe_cls);
         return true;

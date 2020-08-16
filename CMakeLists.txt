@@ -16,6 +16,7 @@ add_subdirectory(parser)
 add_subdirectory(instructions)
 add_subdirectory(interpreter)
 add_subdirectory(utils)
+add_subdirectory(compiler)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
