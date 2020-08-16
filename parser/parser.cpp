@@ -124,24 +124,6 @@ namespace
         break;                                                                                   \
     }
 #define parse_helper(type) std::variant<std::pair<char *, std::size_t>, std::string> parse_##type(char *current, char *end, oops_bcode_compiler::parsing::cls &cls, std::size_t line_number, std::size_t column_number, std::stringstream &error_builder)
-    parse_helper(extends)
-    {
-        if (cls.imports.size() != 7)
-        {
-            parsing_error("Non-extended class already defined!");
-        }
-        cls.implement_count++;
-        return parse_import(current, end, cls, line_number, column_number, error_builder);
-    }
-    parse_helper(implements)
-    {
-        if (cls.imports.size() != 6 + cls.implement_count + 1)
-        {
-            parsing_error("Non-extended class already defined!");
-        }
-        cls.implement_count++;
-        return parse_import(current, end, cls, line_number, column_number, error_builder);
-    }
 
     parse_helper(import)
     {
@@ -151,7 +133,8 @@ namespace
         {
             current++;
             guard_end;
-            if (std::isspace(*current)) {
+            if (std::isspace(*current))
+            {
                 skip_whitespace;
                 guard_end;
             }
@@ -208,6 +191,25 @@ namespace
             parse_word(builder);
             last_word_cleanup(import);
         }
+    }
+
+    parse_helper(extends)
+    {
+        if (cls.imports.size() != 7)
+        {
+            parsing_error("Non-extended class already defined!");
+        }
+        cls.implement_count++;
+        return parse_import(current, end, cls, line_number, column_number, error_builder);
+    }
+    parse_helper(implements)
+    {
+        if (cls.imports.size() != 6 + cls.implement_count + 1)
+        {
+            parsing_error("Non-extended class already defined!");
+        }
+        cls.implement_count++;
+        return parse_import(current, end, cls, line_number, column_number, error_builder);
     }
 
     parse_helper(instance_variable)
@@ -414,12 +416,6 @@ namespace
         }
     }
 
-    parse_helper(static_procedure)
-    {
-        cls.static_method_count++;
-        return parse_procedure(current, end, cls, line_number, column_number, error_builder);
-    }
-
     parse_helper(procedure)
     {
         skip_whitespace;
@@ -427,10 +423,6 @@ namespace
         std::string return_class_name;
         parse_word(return_class_name);
         guard_end;
-        if (!std::isspace(*current))
-        {
-            parsing_error("Unexpected non-digit character while parsing import index!");
-        }
         skip_whitespace;
         cls.methods.push_back({cls.imports[6], ""});
         parse_word(cls.methods.back().name);
@@ -457,6 +449,12 @@ namespace
             }
             return std::pair{current + 1, line_number + 1};
         }
+    }
+
+    parse_helper(static_procedure)
+    {
+        cls.static_method_count++;
+        return parse_procedure(current, end, cls, line_number, column_number, error_builder);
     }
 #undef parse_helper
 } // namespace
