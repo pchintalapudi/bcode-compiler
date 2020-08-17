@@ -630,35 +630,41 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         std::uint64_t instruction;
         switch (instr.itype)
         {
-#define typecheck(var1, var2)                                                                                                       \
-    if (var1->second.type != var2->second.type)                                                                                     \
-    {                                                                                                                               \
-        compiling_error("Types of " #var1 " and " #var2 " do not match (" << var1->second.type " vs " << var2->second.type << ")"); \
+#define typecheck(var1, var2)                                                                                                          \
+    if (var1->second.type != var2->second.type)                                                                                        \
+    {                                                                                                                                  \
+        compiling_error("Types of " #var1 " and " #var2 " do not match (" << var1->second.type << " vs " << var2->second.type << ")"); \
     }
-#define ctype(func, type, prefix, ktype)                                              \
-    case type:                                                                        \
-    {                                                                                 \
-        instruction = ::construct##func(::itype::prefix##ktype, 0, dest, src1, src2); \
-        break;                                                                        \
+#define ctype(type, prefix, ktype)                                                                                            \
+    case type:                                                                                                                \
+    {                                                                                                                         \
+        instruction = ::construct3(::itype::prefix##ktype, 0, dest->second.offset, src1->second.offset, src2->second.offset); \
+        break;                                                                                                                \
     }
-#define basic_op(ktype, tswitch)                          \
-    case keywords::keyword::ktype:                        \
-    {                                                     \
-        lookup_variable(src1);                            \
-        lookup_variable(src2);                            \
-        lookup_variable(dest);                            \
-        typecheck(src1, src2);                            \
-        typecheck(src1, dest);                            \
-        switch (type)                                     \
-        {                                                 \
-            tswitch;                                      \
-        default:                                          \
-            compiling_error("Unsupported type " << type); \
-        }                                                 \
-        break;                                            \
+#define c24type(type, prefix, ktype)                                                                         \
+    case type:                                                                                               \
+    {                                                                                                        \
+        instruction = ::construct24(::itype::prefix##ktype, dest->second.offset, src1->second.offset, src2); \
+        break;                                                                                               \
     }
-#define int_op(ktype) basic_op(ktype, ctype(3, 2, I, ktype); ctype(3, 3, L, ktype))
-#define prim_op(ktype) basic_op(ktype, ctype(3, 2, I, ktype); ctype(3, 3, L, ktype); ctype(3, 4, F, ktype); ctype(3, 5, D, ktype))
+#define basic_op(ktype, tswitch)                                       \
+    case keywords::keyword::ktype:                                     \
+    {                                                                  \
+        lookup_variable(src1);                                         \
+        lookup_variable(src2);                                         \
+        lookup_variable(dest);                                         \
+        typecheck(src1, src2);                                         \
+        typecheck(src1, dest);                                         \
+        switch (dest->second.type)                                     \
+        {                                                              \
+            tswitch;                                                   \
+        default:                                                       \
+            compiling_error("Unsupported type " << dest->second.type); \
+        }                                                              \
+        break;                                                         \
+    }
+#define int_op(ktype) basic_op(ktype, ctype(2, I, ktype); ctype(3, L, ktype))
+#define prim_op(ktype) basic_op(ktype, ctype(2, I, ktype); ctype(3, L, ktype); ctype(4, F, ktype); ctype(5, D, ktype))
             prim_op(ADD);
             prim_op(SUB);
             prim_op(MUL);
@@ -678,24 +684,24 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         compiling_error(std::get<std::string>(parsed)); \
     }                                                   \
     auto var = std::get<type>(parsed);
-#define basic_imm_op(ktype, tswitch)                      \
-    case keywords::keyword::ktype:                        \
-    {                                                     \
-        lookup_variable(src1);                            \
-        lookup_variable(dest);                            \
-        typecheck(src1, dest);                            \
-        parse(src2, to24, std::int32_t);                  \
-        switch (type)                                     \
-        {                                                 \
-            tswitch;                                      \
-        default:                                          \
-            compiling_error("Unsupported type " << type); \
-        }                                                 \
-        break;                                            \
+#define basic_imm_op(ktype, tswitch)                                   \
+    case keywords::keyword::ktype:                                     \
+    {                                                                  \
+        lookup_variable(src1);                                         \
+        lookup_variable(dest);                                         \
+        typecheck(src1, dest);                                         \
+        parse(src2, to24, std::int32_t);                               \
+        switch (dest->second.type)                                     \
+        {                                                              \
+            tswitch;                                                   \
+        default:                                                       \
+            compiling_error("Unsupported type " << dest->second.type); \
+        }                                                              \
+        break;                                                         \
     }
 #pragma endregion
-#define int_imm_op(ktype) basic_imm_op(ktype, ctype(24, 2, I, ktype); ctype(24, 3, L, ktype))
-#define prim_imm_op(ktype) basic_imm_op(ktype, ctype(24, 2, I, ktype); ctype(24, 3, L, ktype); ctype(24, 4, F, ktype); ctype(24, 5, D, ktype))
+#define int_imm_op(ktype) basic_imm_op(ktype, c24type(2, I, ktype); c24type(3, L, ktype))
+#define prim_imm_op(ktype) basic_imm_op(ktype, c24type(2, I, ktype); c24type(3, L, ktype); c24type(4, F, ktype); c24type(5, D, ktype))
             prim_imm_op(ADDI);
             prim_imm_op(SUBI);
             prim_imm_op(MULI);
@@ -718,30 +724,30 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 switch (type->second)
                 {
                 case 2:
-                    instruction = ::construct3(::itype::IANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::IANEW, 0, dest->second.offset, src2->second.offset, 0);
                     break;
                 case 3:
-                    instruction = ::construct3(::itype::LANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::LANEW, 0, dest->second.offset, src2->second.offset, 0);
                     break;
                 case 4:
-                    instruction = ::construct3(::itype::FANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::FANEW, 0, dest->second.offset, src2->second.offset, 0);
                     break;
                 case 5:
-                    instruction = ::construct3(::itype::DANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::DANEW, 0, dest->second.offset, src2->second.offset, 0);
                     break;
                 }
             }
             else if (instr.src1 == "char")
             {
-                instruction = ::construct3(::itype::CANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::CANEW, 0, dest->second.offset, src2->second.offset, 0);
             }
             else if (instr.src1 == "short")
             {
-                instruction = ::construct3(::itype::SANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::SANEW, 0, dest->second.offset, src2->second.offset, 0);
             }
             else
             {
-                instruction = ::construct3(::itype::VANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::VANEW, 0, dest->second.offset, src2->second.offset, 0);
             }
             break;
         }
@@ -814,9 +820,9 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         }
         case keywords::keyword::NEG:
         {
+            lookup_variable(dest);
             lookup_variable(src1);
-            lookup_variable(src2);
-            typecheck(src1, src2);
+            typecheck(src1, dest);
             switch (src1->second.type)
             {
             case 2:
@@ -851,7 +857,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             {
                 parse(src1, parse_long, std::int64_t);
                 instruction = ::construct40(::itype::LUI, dest->second.offset, src1 >> 24);
-                if (src1 << (sizeof(std::uint64_t) * CHAR_BIT - 24))
+                if ((src1 << (sizeof(std::uint64_t) * CHAR_BIT - 24)) != 0)
                 {
                     mtd.instructions.push_back(instruction);
                     instruction = ::construct24(::itype::LADDI, dest->second.offset, dest->second.offset, src1 << (sizeof(std::uint64_t) * CHAR_BIT - 24) >> (sizeof(std::uint64_t) * CHAR_BIT - 24));
@@ -1157,7 +1163,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 type = ::itype::VVLSR;
                 break;
             }
-            instruction = ::construct3(type, 0, object->second.offset, src1->second.offset, 0);
+            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
             thunk(src2, "Instance variable", IMM24, IVAR);
             break;
         }
