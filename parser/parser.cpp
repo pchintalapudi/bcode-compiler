@@ -325,6 +325,7 @@ namespace
             case kw::VINV:
             case kw::SINV:
             case kw::IINV:
+            case kw::ANEW:
             {
                 cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
                 auto instruction = cls.self_methods.back().instructions.back();
@@ -344,13 +345,6 @@ namespace
             case kw::LI:
             case kw::NEG:
             case kw::CST:
-            case kw::CANEW:
-            case kw::SANEW:
-            case kw::IANEW:
-            case kw::LANEW:
-            case kw::FANEW:
-            case kw::DANEW:
-            case kw::VANEW:
             case kw::DEF:
             case kw::VNEW:
             case kw::IOF:

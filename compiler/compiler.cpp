@@ -1,5 +1,7 @@
 #include "compiler.h"
 
+#include <algorithm>
+#include <cmath>
 #include <sstream>
 
 #include "../instructions/keywords.h"
@@ -98,7 +100,6 @@ namespace
         LSRLI,
         ISRAI,
         LSRAI,
-        //TODO
         IBGE,
         LBGE,
         FBGE,
@@ -151,6 +152,7 @@ namespace
         FBNEQI,
         DBNEQI,
         VBNEQI,
+        //TODO
         IBCMP,
         LBCMP,
         FBCMP,
@@ -200,6 +202,7 @@ namespace
         DSTSR,
         VSTSR,
         VNEW,
+        //Done
         CANEW,
         SANEW,
         IANEW,
@@ -207,6 +210,7 @@ namespace
         FANEW,
         DANEW,
         VANEW,
+        //TODO
         IOF,
         VINV,
         SINV,
@@ -216,7 +220,6 @@ namespace
         FRET,
         DRET,
         VRET,
-        //TODO
         EXC
     };
 
@@ -253,7 +256,7 @@ namespace
         std::uint64_t out = 0;
         out <<= CHAR_BIT * sizeof(type);
         out |= static_cast<std::uint8_t>(type);
-        out <<= CHAR_BIT * sizeof(sizeof(flags));
+        out <<= CHAR_BIT * sizeof(flags);
         out |= static_cast<std::uint8_t>(flags);
         out <<= CHAR_BIT * sizeof(imm32);
         out |= imm32;
@@ -308,15 +311,16 @@ namespace
                 }
             }
         }
-        catch (std::invalid_argument)
+        catch (std::invalid_argument &)
         {
             pfail;
         }
-        catch (std::out_of_range)
+        catch (std::out_of_range &)
         {
             return "'" + str + "' is too large to be an integer";
         }
         return parsed;
+#undef pfail
     }
     std::variant<std::int64_t, std::string> parse_long(const std::string &str)
     {
@@ -364,15 +368,16 @@ namespace
                 }
             }
         }
-        catch (std::invalid_argument)
+        catch (std::invalid_argument &)
         {
             pfail;
         }
-        catch (std::out_of_range)
+        catch (std::out_of_range &)
         {
             return "'" + str + "' is too large to be a long";
         }
         return parsed;
+#undef pfail
     }
 
     std::variant<float, std::string> parse_float(const std::string &str)
@@ -387,11 +392,11 @@ namespace
             }
             return parsed;
         }
-        catch (std::invalid_argument)
+        catch (std::invalid_argument &)
         {
             return "'" + str + "' could not be parsed as a float";
         }
-        catch (std::out_of_range)
+        catch (std::out_of_range &)
         {
             return "'" + str + "' is too large to be a float";
         }
@@ -409,11 +414,11 @@ namespace
             }
             return parsed;
         }
-        catch (std::invalid_argument)
+        catch (std::invalid_argument &)
         {
             return "'" + str + "' could not be parsed as a double";
         }
-        catch (std::out_of_range)
+        catch (std::out_of_range &)
         {
             return "'" + str + "' is too large to be a double";
         }
@@ -424,12 +429,25 @@ namespace
         auto parsed = parse_int(str);
         if (std::holds_alternative<std::int32_t>(parsed))
         {
-            if (std::get<std::int32_t>(parsed) & ~static_cast<std::int32_t>(0) << 24)
+            if (static_cast<std::uint32_t>(std::get<std::int32_t>(parsed)) >> 24)
             {
                 return "'" + str + "' is too large to be a 24-bit integer";
             }
         }
         return parsed;
+    }
+    std::variant<std::int16_t, std::string> to16(const std::string &str)
+    {
+        auto parsed = parse_int(str);
+        if (std::holds_alternative<std::int32_t>(parsed))
+        {
+            if (static_cast<std::uint32_t>(std::get<std::int32_t>(parsed)) >> 16)
+            {
+                return "'" + str + "' is too large to be a 16-bit integer";
+            }
+            return static_cast<std::int16_t>(std::get<std::int32_t>(parsed));
+        }
+        return std::get<std::string>(parsed);
     }
 } // namespace
 
@@ -441,6 +459,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
     mtd.stack_size = 0;
     mtd.size = 0;
     std::unordered_map<std::string, ::var> local_variables;
+    std::unordered_map<std::string, std::uint16_t> labels;
     for (auto arg : proc.parameters)
     {
         if (auto type = typer.find(arg.host_name); type != typer.end())
@@ -458,12 +477,90 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
     }
     auto rtype = typer.find(proc.return_type_name);
     mtd.return_type = rtype != typer.end() ? rtype->second : 6;
+    std::uint16_t iidx = 0;
+    unsigned arg_counter = 0;
+    std::vector<std::tuple<std::uint8_t, std::uint8_t, std::string>> defines;
     for (std::size_t i = 0; i < proc.instructions.size(); i++)
     {
-        const auto &instr = proc.instructions[i];
+        auto &instr = proc.instructions[i];
 #define compiling_error(error)                                                                                                                                                                                                                                      \
     error_builder << "Error while compiling procedure " << proc.name << ": " << error << " for instruction " << i << " (" << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " " << instr.dest << " " << instr.src1 << " " << instr.src2 << ")"; \
     return error_builder.str()
+        if (instr.itype == keywords::keyword::PASS)
+        {
+            arg_counter++;
+            continue;
+        }
+        iidx += (arg_counter + 3) / 4;
+        switch (instr.itype)
+        {
+        case keywords::keyword::LBL:
+            labels[instr.src1] = iidx;
+            continue;
+        case keywords::keyword::DEF:
+        {
+            auto size = sizer.find(instr.dest);
+            if (size != sizer.end())
+            {
+                defines.push_back({size->second, typer.find(instr.dest)->second, instr.src1});
+            }
+            else
+            {
+                defines.push_back({sizeof(char *) / sizeof(std::int32_t), 6, instr.src1});
+            }
+            continue;
+        }
+        case keywords::keyword::IMP:
+        case keywords::keyword::IVAR:
+        case keywords::keyword::SVAR:
+        case keywords::keyword::ARG:
+        case keywords::keyword::PROC:
+        case keywords::keyword::SPROC:
+        case keywords::keyword::EPROC:
+        case keywords::keyword::EXT:
+        case keywords::keyword::IMPL:
+        case keywords::keyword::CLZ:
+            compiling_error("Invalid keyword in procedure");
+        default:
+            break;
+        }
+        iidx++;
+    }
+    std::sort(defines.begin(), defines.end());
+    std::for_each(defines.rbegin(), defines.rend(), [&mtd, &local_variables](decltype(defines)::value_type tup) {
+        local_variables[std::get<2>(tup)] = {mtd.stack_size, std::get<1>(tup)};
+        mtd.stack_size += std::get<0>(tup);
+    });
+    std::uint64_t arg_builder = 0;
+    for (std::size_t i = 0; i < proc.instructions.size(); i++)
+    {
+        const auto &instr = proc.instructions[i];
+        if (instr.itype != keywords::keyword::PASS)
+        {
+            if (arg_counter % 4 != 0)
+            {
+                mtd.instructions.push_back(arg_builder >> CHAR_BIT * sizeof(std::uint16_t) * (arg_counter % 4));
+                arg_builder = 0;
+                arg_counter = 0;
+            }
+        }
+        else
+        {
+            arg_builder >>= CHAR_BIT * sizeof(std::uint16_t);
+            auto offset = local_variables.find(instr.dest);
+            if (offset == local_variables.end())
+            {
+                compiling_error("Undefined variable '" << instr.dest << "'");
+            }
+            arg_builder |= static_cast<std::uint64_t>(offset->second.offset) << CHAR_BIT * (sizeof(std::uint64_t) - sizeof(std::uint16_t));
+            if (arg_counter % 4 == 3)
+            {
+                mtd.instructions.push_back(arg_builder);
+                arg_builder = 0;
+            }
+            arg_counter++;
+            continue;
+        }
         std::uint64_t instruction;
         switch (instr.itype)
         {
@@ -601,6 +698,148 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             int_imm_op(SLLI);
             int_imm_op(SRLI);
             int_imm_op(SRAI);
+        case keywords::keyword::LBL:
+        {
+            continue;
+        }
+        case keywords::keyword::ANEW:
+        {
+            auto length = local_variables[instr.src2];
+            if (length.type != 2)
+            {
+                compiling_error("Array length stored in '" << instr.src2 << "' must be an integer");
+            }
+            auto dest = local_variables[instr.dest];
+            if (dest.type != 6)
+            {
+                compiling_error("Array must be stored in a reference variable, and '" << instr.dest << "' has type " << dest.type);
+            }
+            auto type = typer.find(instr.src1);
+            if (type != typer.end())
+            {
+                switch (type->second)
+                {
+                case 2:
+                    instruction = ::construct(::itype::IANEW, 0, dest.offset, length.offset, 0);
+                    break;
+                case 3:
+                    instruction = ::construct(::itype::LANEW, 0, dest.offset, length.offset, 0);
+                    break;
+                case 4:
+                    instruction = ::construct(::itype::FANEW, 0, dest.offset, length.offset, 0);
+                    break;
+                case 5:
+                    instruction = ::construct(::itype::DANEW, 0, dest.offset, length.offset, 0);
+                    break;
+                }
+            }
+            else if (instr.src1 == "char")
+            {
+                instruction = ::construct(::itype::CANEW, 0, dest.offset, length.offset, 0);
+            }
+            else if (instr.src1 == "short")
+            {
+                instruction = ::construct(::itype::SANEW, 0, dest.offset, length.offset, 0);
+            }
+            else
+            {
+                instruction = ::construct(::itype::VANEW, 0, dest.offset, length.offset, 0);
+            }
+            break;
+        }
+#define cbr(idx, type, ktype)                                                                                                                                                                                                                              \
+    case idx:                                                                                                                                                                                                                                              \
+        instruction = ::construct(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2->second.offset); \
+        break
+#define branch(ktype, tswitch)                                                                                                    \
+    case keywords::keyword::ktype:                                                                                                \
+    {                                                                                                                             \
+        auto to_instr = labels.find(instr.dest);                                                                                  \
+        if (to_instr == labels.end())                                                                                             \
+        {                                                                                                                         \
+            compiling_error("Undefined label '" << instr.dest << "'");                                                            \
+        }                                                                                                                         \
+        auto src1 = local_variables.find(instr.src1);                                                                             \
+        if (src1 == local_variables.end())                                                                                        \
+        {                                                                                                                         \
+            compiling_error("Undefined variable '" << instr.src1 << "'");                                                         \
+        }                                                                                                                         \
+        auto src2 = local_variables.find(instr.src2);                                                                             \
+        if (src2 == local_variables.end())                                                                                        \
+        {                                                                                                                         \
+            compiling_error("Undefined variable '" << instr.src2 << "'");                                                         \
+        }                                                                                                                         \
+        if (src1->second.type != src2->second.type)                                                                               \
+        {                                                                                                                         \
+            compiling_error("Types of src1 and src2 (" << src1->second.type << " and " << src2->second.type << ") do not match"); \
+        }                                                                                                                         \
+        switch (src1->second.type)                                                                                                \
+        {                                                                                                                         \
+            tswitch(ktype);                                                                                                       \
+        }                                                                                                                         \
+        break;                                                                                                                    \
+    }
+#define cmp(ktype)    \
+    cbr(2, I, ktype); \
+    cbr(3, L, ktype); \
+    cbr(4, F, ktype); \
+    cbr(5, D, ktype)
+#define eq(ktype) \
+    cmp(ktype);   \
+    cbr(6, V, ktype)
+            branch(BEQ, eq);
+            branch(BNEQ, eq);
+            branch(BLE, cmp);
+            branch(BLT, cmp);
+            branch(BGE, cmp);
+            branch(BGT, cmp);
+#undef cbr
+
+#define branch_imm(ktype, tswitch)                                        \
+    case keywords::keyword::ktype:                                        \
+    {                                                                     \
+        auto to_instr = labels.find(instr.dest);                          \
+        if (to_instr == labels.end())                                     \
+        {                                                                 \
+            compiling_error("Undefined label '" << instr.dest << "'");    \
+        }                                                                 \
+        auto src1 = local_variables.find(instr.src1);                     \
+        if (src1 == local_variables.end())                                \
+        {                                                                 \
+            compiling_error("Undefined variable '" << instr.src1 << "'"); \
+        }                                                                 \
+        auto vsrc2 = ::to16(instr.src2);                                  \
+        if (std::holds_alternative<std::string>(vsrc2))                   \
+        {                                                                 \
+            return std::get<std::string>(vsrc2);                          \
+        }                                                                 \
+        auto src2 = std::get<std::int16_t>(vsrc2);                        \
+        switch (src1->second.type)                                        \
+        {                                                                 \
+            tswitch(ktype);                                               \
+        }                                                                 \
+        break;                                                            \
+    }
+#define cbr(idx, type, ktype)                                                                                                                                                                                                               \
+    case idx:                                                                                                                                                                                                                               \
+        instruction = ::construct(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2); \
+        break
+            branch_imm(BEQI, eq);
+            branch_imm(BNEQI, eq);
+            branch_imm(BLEI, cmp);
+            branch_imm(BLTI, cmp);
+            branch_imm(BGEI, cmp);
+            branch_imm(BGTI, cmp);
+        case keywords::keyword::BU:
+        {
+            auto to_instr = labels.find(instr.dest);
+            if (to_instr == labels.end())
+            {
+                compiling_error("Undefined label '" << instr.dest << "'");
+            }
+            instruction = ::construct(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), 0, 0);
+            break;
+        }
         }
         mtd.instructions.push_back(instruction);
     }

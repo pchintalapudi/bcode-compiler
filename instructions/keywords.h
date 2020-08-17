@@ -10,7 +10,9 @@ namespace oops_bcode_compiler
     {
         enum class keyword
         {
+            //Skip
             NOP,
+            //Done
             ADD,
             SUB,
             MUL,
@@ -21,10 +23,12 @@ namespace oops_bcode_compiler
             MULI,
             DIVI,
             DIVUI,
+            //TODO
             NEG,
             LI,
             LNL,
             CST,
+            //Done
             AND,
             OR,
             XOR,
@@ -49,9 +53,11 @@ namespace oops_bcode_compiler
             BGTI,
             BEQI,
             BNEQI,
+            //Skip
             BCMP,
             BADR,
             BU,
+            //TODO
             CVLLD,
             SVLLD,
             VLLD,
@@ -71,26 +77,27 @@ namespace oops_bcode_compiler
             SSTSR,
             STSR,
             VNEW,
-            CANEW,
-            SANEW,
-            IANEW,
-            LANEW,
-            FANEW,
-            DANEW,
-            VANEW,
+            //Done
+            ANEW,
+            //TODO
             IOF,
             VINV,
             SINV,
             IINV,
             RET,
+            //Skip
             EXC,
             IMP,
             IVAR,
             SVAR,
+            //Done
             DEF,
             PASS,
+            //Skip
             ARG,
+            //Done
             LBL,
+            //Skip
             PROC,
             SPROC,
             EPROC,
@@ -154,13 +161,7 @@ namespace oops_bcode_compiler
             stringize(STLD);
             stringize(STSR);
             stringize(VNEW);
-            stringize(CANEW);
-            stringize(SANEW);
-            stringize(IANEW);
-            stringize(LANEW);
-            stringize(FANEW);
-            stringize(DANEW);
-            stringize(VANEW);
+            stringize(ANEW);
             stringize(IOF);
             stringize(VINV);
             stringize(SINV);
