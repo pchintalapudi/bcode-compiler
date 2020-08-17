@@ -360,7 +360,6 @@ namespace
                 parse_word(instruction.src1);
                 last_word_cleanup(instruction);
             }
-            case kw::LNL:
             case kw::RET:
             case kw::PASS:
             {

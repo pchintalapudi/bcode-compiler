@@ -6,6 +6,7 @@
 
 #include "../instructions/keywords.h"
 #include "../utils/hashing.h"
+#include "../utils/puns.h"
 
 using namespace oops_bcode_compiler::compiler;
 
@@ -62,6 +63,7 @@ namespace
         FNEG,
         DNEG,
         LUI,
+        LDI,
         LNL,
         ICSTL,
         ICSTF,
@@ -223,7 +225,7 @@ namespace
         EXC
     };
 
-    std::uint64_t construct(itype type, std::uint8_t flags, std::uint16_t dest, std::uint16_t src1, std::uint16_t src2)
+    std::uint64_t construct3(itype type, std::uint8_t flags, std::uint16_t dest, std::uint16_t src1, std::uint16_t src2)
     {
         std::uint64_t out = 0;
         out <<= CHAR_BIT * sizeof(type);
@@ -238,7 +240,7 @@ namespace
         out |= dest;
         return out;
     }
-    std::uint64_t construct(itype type, std::uint16_t dest, std::uint16_t src1, std::uint32_t imm24)
+    std::uint64_t construct24(itype type, std::uint16_t dest, std::uint16_t src1, std::uint32_t imm24)
     {
         std::uint64_t out = 0;
         out <<= CHAR_BIT * sizeof(type);
@@ -251,7 +253,7 @@ namespace
         out |= dest;
         return out;
     }
-    std::uint64_t construct(itype type, std::uint8_t flags, std::uint16_t dest, std::uint32_t imm32)
+    std::uint64_t construct32(itype type, std::uint8_t flags, std::uint16_t dest, std::uint32_t imm32)
     {
         std::uint64_t out = 0;
         out <<= CHAR_BIT * sizeof(type);
@@ -263,6 +265,13 @@ namespace
         out <<= CHAR_BIT * sizeof(dest);
         out |= dest;
         return out;
+    }
+    std::uint64_t construct40(itype type, std::uint16_t dest, std::uint64_t imm40)
+    {
+        imm40 |= static_cast<std::uint64_t>(type) << 40;
+        imm40 << CHAR_BIT * sizeof(dest);
+        imm40 |= dest;
+        return imm40;
     }
 
     std::variant<std::int32_t, std::string> parse_int(const std::string &str)
@@ -449,6 +458,11 @@ namespace
         }
         return std::get<std::string>(parsed);
     }
+
+    constexpr std::uint8_t cast_types(std::uint8_t src, std::uint8_t dest)
+    {
+        return src * 16 + dest;
+    }
 } // namespace
 
 std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const oops_bcode_compiler::parsing::cls::procedure &proc, std::stringstream &error_builder)
@@ -508,6 +522,66 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             {
                 defines.push_back({sizeof(char *) / sizeof(std::int32_t), 6, instr.src1});
             }
+            local_variables[instr.dest] = {0, std::get<1>(defines.back())};
+            continue;
+        }
+        case keywords::keyword::LI:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            switch (dest->second.type)
+            {
+            case 2:
+            case 4:
+            case 6:
+            {
+                iidx++;
+                break;
+            }
+            case 3:
+            {
+                auto parsed = ::parse_long(instr.src1);
+                if (std::holds_alternative<std::int64_t>(parsed))
+                {
+                    std::uint64_t big = std::get<std::int64_t>(parsed);
+                    if (big << 40)
+                    {
+                        iidx += 2;
+                    }
+                    else
+                    {
+                        iidx++;
+                    }
+                }
+                else
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+            }
+            case 5:
+            {
+                auto parsed = ::parse_double(instr.src1);
+                if (std::holds_alternative<double>(parsed))
+                {
+                    std::uint64_t big = utils::pun_reinterpret<std::uint64_t>(std::get<double>(parsed));
+                    if (big << 40)
+                    {
+                        iidx += 2;
+                    }
+                    else
+                    {
+                        iidx++;
+                    }
+                }
+                else
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+            }
+            }
             continue;
         }
         case keywords::keyword::IMP:
@@ -564,17 +638,17 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         std::uint64_t instruction;
         switch (instr.itype)
         {
-#define ctype(type, prefix, ktype)                                              \
+#define ctype(type, prefix, ktype)                                               \
+    case type:                                                                   \
+    {                                                                            \
+        instruction = ::construct3(::itype::prefix##ktype, 0, dest, src1, src2); \
+        break;                                                                   \
+    }
+#define c24type(type, prefix, ktype)                                            \
     case type:                                                                  \
     {                                                                           \
-        instruction = ::construct(::itype::prefix##ktype, 0, dest, src1, src2); \
+        instruction = ::construct24(::itype::prefix##ktype, dest, src1, imm24); \
         break;                                                                  \
-    }
-#define c24type(type, prefix, ktype)                                          \
-    case type:                                                                \
-    {                                                                         \
-        instruction = ::construct(::itype::prefix##ktype, dest, src1, imm24); \
-        break;                                                                \
     }
 #pragma region
 
@@ -720,36 +794,36 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 switch (type->second)
                 {
                 case 2:
-                    instruction = ::construct(::itype::IANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::IANEW, 0, dest.offset, length.offset, 0);
                     break;
                 case 3:
-                    instruction = ::construct(::itype::LANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::LANEW, 0, dest.offset, length.offset, 0);
                     break;
                 case 4:
-                    instruction = ::construct(::itype::FANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::FANEW, 0, dest.offset, length.offset, 0);
                     break;
                 case 5:
-                    instruction = ::construct(::itype::DANEW, 0, dest.offset, length.offset, 0);
+                    instruction = ::construct3(::itype::DANEW, 0, dest.offset, length.offset, 0);
                     break;
                 }
             }
             else if (instr.src1 == "char")
             {
-                instruction = ::construct(::itype::CANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::CANEW, 0, dest.offset, length.offset, 0);
             }
             else if (instr.src1 == "short")
             {
-                instruction = ::construct(::itype::SANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::SANEW, 0, dest.offset, length.offset, 0);
             }
             else
             {
-                instruction = ::construct(::itype::VANEW, 0, dest.offset, length.offset, 0);
+                instruction = ::construct3(::itype::VANEW, 0, dest.offset, length.offset, 0);
             }
             break;
         }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                                              \
-    case idx:                                                                                                                                                                                                                                              \
-        instruction = ::construct(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2->second.offset); \
+#define cbr(idx, type, ktype)                                                                                                                                                                                                                               \
+    case idx:                                                                                                                                                                                                                                               \
+        instruction = ::construct3(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2->second.offset); \
         break
 #define branch(ktype, tswitch)                                                                                                    \
     case keywords::keyword::ktype:                                                                                                \
@@ -820,9 +894,9 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         }                                                                 \
         break;                                                            \
     }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                               \
-    case idx:                                                                                                                                                                                                                               \
-        instruction = ::construct(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2); \
+#define cbr(idx, type, ktype)                                                                                                                                                                                                                \
+    case idx:                                                                                                                                                                                                                                \
+        instruction = ::construct3(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2); \
         break
             branch_imm(BEQI, eq);
             branch_imm(BNEQI, eq);
@@ -837,7 +911,182 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             {
                 compiling_error("Undefined label '" << instr.dest << "'");
             }
-            instruction = ::construct(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), 0, 0);
+            instruction = ::construct3(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), 0, 0);
+            break;
+        }
+        case keywords::keyword::NEG:
+        {
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable '" << instr.src1 << "'");
+            }
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable '" << instr.dest << "'");
+            }
+            if (src1->second.type != dest->second.type)
+            {
+                compiling_error("Mismatched types of src1 and dest (" << src1->second.type << " and " << dest->second.type << ")");
+            }
+            switch (src1->second.type)
+            {
+            case 2:
+                instruction = ::construct3(::itype::INEG, 0, dest->second.offset, src1->second.offset, 0);
+                break;
+            case 3:
+                instruction = ::construct3(::itype::LNEG, 0, dest->second.offset, src1->second.offset, 0);
+                break;
+            case 4:
+                instruction = ::construct3(::itype::FNEG, 0, dest->second.offset, src1->second.offset, 0);
+                break;
+            case 5:
+                instruction = ::construct3(::itype::DNEG, 0, dest->second.offset, src1->second.offset, 0);
+                break;
+            default:
+                compiling_error("Unsupported type " << src1->second.type);
+            }
+            break;
+        }
+        case keywords::keyword::LI:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            switch (dest->second.type)
+            {
+            case 2:
+            {
+                auto parsed = ::parse_int(instr.src1);
+                if (std::holds_alternative<std::string>(parsed))
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+                instruction = ::construct32(::itype::LDI, 0, dest->second.offset, std::get<std::int32_t>(parsed));
+                break;
+            }
+            case 3:
+            {
+                auto parsed = ::parse_long(instr.src1);
+                if (std::holds_alternative<std::string>(parsed))
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+                std::uint64_t big = std::get<std::int64_t>(parsed);
+                instruction = ::construct40(::itype::LUI, dest->second.offset, big >> 24);
+                if (big << (sizeof(std::uint64_t) * CHAR_BIT - 24))
+                {
+                    mtd.instructions.push_back(instruction);
+                    instruction = ::construct24(::itype::LADDI, dest->second.offset, dest->second.offset, big << (sizeof(std::uint64_t) * CHAR_BIT - 24) >> (sizeof(std::uint64_t) * CHAR_BIT - 24));
+                }
+                break;
+            }
+            case 4:
+            {
+                auto parsed = ::parse_float(instr.src1);
+                if (std::holds_alternative<std::string>(parsed))
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+                instruction = ::construct32(::itype::LDI, 0, dest->second.offset, utils::pun_reinterpret<std::int32_t>(std::get<float>(parsed)));
+                break;
+            }
+            case 5:
+            {
+                auto parsed = ::parse_double(instr.src1);
+                if (std::holds_alternative<std::string>(parsed))
+                {
+                    compiling_error(std::get<std::string>(parsed));
+                }
+                std::uint64_t big = utils::pun_reinterpret<std::uint64_t>(std::get<double>(parsed));
+                instruction = ::construct40(::itype::LUI, dest->second.offset, big >> 24);
+                if (big << (sizeof(std::uint64_t) * CHAR_BIT - 24))
+                {
+                    mtd.instructions.push_back(instruction);
+                    instruction = ::construct24(::itype::LADDI, dest->second.offset, dest->second.offset, big << (sizeof(std::uint64_t) * CHAR_BIT - 24) >> (sizeof(std::uint64_t) * CHAR_BIT - 24));
+                }
+                break;
+            }
+            case 6:
+            {
+                if (instr.src1 != "null")
+                {
+                    compiling_error("Cannot load non-null value " << instr.src1 << " into reference variable " << instr.dest);
+                }
+                instruction = ::construct40(::itype::LNL, dest->second.offset, 0);
+            }
+            }
+        }
+        case keywords::keyword::CST:
+        {
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (src1->second.type == dest->second.type)
+            {
+                compiling_error("Casting between two variables of same type " << src1->second.type << " is not allowed");
+            }
+            if (src1->second.type == 6)
+            {
+                compiling_error(instr.src1 << " is a reference variable and cannot be cast");
+            }
+            if (dest->second.type == 6)
+            {
+                compiling_error(instr.dest << " is a reference variable and cannot be cast");
+            }
+            ::itype type;
+            switch (::cast_types(src1->second.type, dest->second.type))
+            {
+            case ::cast_types(2, 3):
+                type = ::itype::ICSTL;
+                break;
+            case ::cast_types(2, 4):
+                type = ::itype::ICSTF;
+                break;
+            case ::cast_types(2, 5):
+                type = ::itype::ICSTD;
+                break;
+            case ::cast_types(3, 2):
+                type = ::itype::LCSTI;
+                break;
+            case ::cast_types(3, 4):
+                type = ::itype::LCSTF;
+                break;
+            case ::cast_types(3, 5):
+                type = ::itype::LCSTD;
+                break;
+            case ::cast_types(4, 2):
+                type = ::itype::FCSTI;
+                break;
+            case ::cast_types(4, 3):
+                type = ::itype::FCSTL;
+                break;
+            case ::cast_types(4, 5):
+                type = ::itype::FCSTD;
+                break;
+            case ::cast_types(5, 2):
+                type = ::itype::DCSTI;
+                break;
+            case ::cast_types(5, 3):
+                type = ::itype::DCSTL;
+                break;
+            case ::cast_types(5, 4):
+                type = ::itype::DCSTF;
+                break;
+                default:
+                compiling_error("Invalid combination of types for src1 and dest (" << src1->second.type << " and " << dest->second.type << ")");
+            }
+            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
             break;
         }
         }

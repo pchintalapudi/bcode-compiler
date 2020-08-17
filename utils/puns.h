@@ -21,7 +21,7 @@ namespace oops_bcode_compiler
             std::memcpy(to, &p, sizeof(primitive));
         }
 
-        template <typename from_t, typename to_t>
+        template <typename to_t, typename from_t>
         std::enable_if_t<sizeof(from_t) == sizeof(to_t), to_t> pun_reinterpret(from_t from)
         {
             return utils::pun_read<to_t>(&from);

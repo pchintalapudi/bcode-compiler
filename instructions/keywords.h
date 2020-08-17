@@ -23,12 +23,9 @@ namespace oops_bcode_compiler
             MULI,
             DIVI,
             DIVUI,
-            //TODO
             NEG,
             LI,
-            LNL,
             CST,
-            //Done
             AND,
             OR,
             XOR,
@@ -56,6 +53,7 @@ namespace oops_bcode_compiler
             //Skip
             BCMP,
             BADR,
+            //Done
             BU,
             //TODO
             CVLLD,
@@ -125,7 +123,6 @@ namespace oops_bcode_compiler
             stringize(DIVUI);
             stringize(NEG);
             stringize(LI);
-            stringize(LNL);
             stringize(CST);
             stringize(AND);
             stringize(OR);
