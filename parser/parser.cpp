@@ -6,26 +6,6 @@
 
 using namespace oops_bcode_compiler::parsing;
 
-parser::parser(std::string filename)
-{
-    if (auto mapping = platform::open_class_file_mapping(filename))
-    {
-        this->mapping = *mapping;
-    }
-    else
-    {
-        this->mapping.mmapped_file = nullptr;
-    }
-}
-
-parser::~parser()
-{
-    if (this->mapping.mmapped_file)
-    {
-        platform::close_file_mapping(this->mapping);
-    }
-}
-
 namespace
 {
 
@@ -458,11 +438,12 @@ namespace
 #undef parse_helper
 } // namespace
 
-std::variant<cls, std::string> parser::parse()
+std::optional<std::variant<cls, std::string>> oops_bcode_compiler::parsing::parse(std::string filename)
 {
-    if (!this->mapping.mmapped_file)
+    auto mapping = platform::open_class_file_mapping(filename);
+    if (!mapping)
     {
-        return "File was not opened!";
+        return {};
     }
     cls ret;
     for (auto imp : {"char", "short", "int", "long", "float", "double"})
@@ -472,7 +453,7 @@ std::variant<cls, std::string> parser::parse()
     ret.implement_count = ret.static_method_count = 0;
     std::stringstream error_builder;
     std::string keyword_builder;
-    char *current = this->mapping.mmapped_file, *end = current + this->mapping.file_size;
+    char *current = mapping->mmapped_file, *end = current + mapping->file_size;
     std::size_t line_number = 0, column_number = 0;
     while (current < end)
     {
@@ -505,5 +486,6 @@ std::variant<cls, std::string> parser::parse()
             parsing_error("Unknown keyword '" << keyword_builder << "'");
         }
     }
+    platform::close_file_mapping(*mapping);
     return ret;
 }

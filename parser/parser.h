@@ -26,13 +26,15 @@ namespace oops_bcode_compiler
             std::vector<variable> static_variables, instance_variables, self_statics, self_instances;
             typedef variable method;
             std::vector<method> methods;
-            struct instruction {
+            struct instruction
+            {
                 std::string dest;
                 std::string src1;
                 std::string src2;
                 keywords::keyword itype;
             };
-            struct procedure {
+            struct procedure
+            {
                 std::string name;
                 std::string return_type_name;
                 std::vector<variable> parameters;
@@ -41,17 +43,7 @@ namespace oops_bcode_compiler
             };
             std::vector<procedure> self_methods;
         };
-
-        class parser
-        {
-        private:
-            platform::file_mapping mapping;
-
-        public:
-            parser(std::string filename);
-            std::variant<cls, std::string> parse();
-            ~parser();
-        };
-    } // namespace lexer
+        std::optional<std::variant<cls, std::string>> parse(std::string filename);
+    } // namespace parsing
 } // namespace oops_bcode_compiler
 #endif /* LEXER_LEXER */
