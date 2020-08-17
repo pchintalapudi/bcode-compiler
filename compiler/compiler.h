@@ -39,6 +39,7 @@ namespace oops_bcode_compiler
 
         struct method
         {
+            std::string name;
             std::vector<std::uint64_t> instructions;
             std::vector<thunk> thunks;
             std::vector<std::uint16_t> handle_map;

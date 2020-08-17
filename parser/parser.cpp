@@ -420,7 +420,7 @@ namespace
         cls.methods.push_back({cls.imports[6], ""});
         parse_word(cls.methods.back().name);
         last_word(procedure, current++);
-        cls.self_methods.push_back({cls.methods.back().name, return_class_name, {}, {}});
+        cls.self_methods.push_back({cls.methods.back().name, return_class_name, {}, {}, false});
         std::variant<std::pair<char *, std::size_t>, std::string, int> next = std::pair{current, line_number + 1};
         do
         {
@@ -449,7 +449,10 @@ namespace
     parse_helper(static_procedure)
     {
         cls.static_method_count++;
-        return parse_procedure(current, end, cls, line_number, column_number, error_builder);
+        auto proc = parse_procedure(current, end, cls, line_number, column_number, error_builder);
+        if (!std::holds_alternative<std::string>(proc)) {
+            cls.self_methods.back().is_static = true;
+        }
     }
 #undef parse_helper
 } // namespace

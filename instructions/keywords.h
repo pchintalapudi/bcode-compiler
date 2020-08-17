@@ -74,11 +74,11 @@ namespace oops_bcode_compiler
             CSTSR,
             SSTSR,
             STSR,
-            VNEW,
             //Done
+            VNEW,
             ANEW,
-            //TODO
             IOF,
+            //TODO
             VINV,
             SINV,
             IINV,

@@ -269,7 +269,7 @@ namespace
     std::uint64_t construct40(itype type, std::uint16_t dest, std::uint64_t imm40)
     {
         imm40 |= static_cast<std::uint64_t>(type) << 40;
-        imm40 << CHAR_BIT * sizeof(dest);
+        imm40 <<= CHAR_BIT * sizeof(dest);
         imm40 |= dest;
         return imm40;
     }
@@ -467,8 +467,8 @@ namespace
 
 std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const oops_bcode_compiler::parsing::cls::procedure &proc, std::stringstream &error_builder)
 {
-    static const std::unordered_map<std::string, std::size_t> sizer = {{"int", sizeof(std::int32_t) / sizeof(std::uint32_t)}, {"long", sizeof(std::int64_t) / sizeof(std::uint32_t)}, {"float", sizeof(float) / sizeof(std::uint32_t)}, {"double", sizeof(double) / sizeof(std::uint32_t)}};
-    static const std::unordered_map<std::string, std::size_t> typer = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
+    static const std::unordered_map<std::string, std::uint8_t> sizer = {{"int", sizeof(std::int32_t) / sizeof(std::uint32_t)}, {"long", sizeof(std::int64_t) / sizeof(std::uint32_t)}, {"float", sizeof(float) / sizeof(std::uint32_t)}, {"double", sizeof(double) / sizeof(std::uint32_t)}};
+    static const std::unordered_map<std::string, std::uint8_t> typer = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
     method mtd;
     mtd.stack_size = 0;
     mtd.size = 0;
@@ -491,6 +491,8 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
     }
     auto rtype = typer.find(proc.return_type_name);
     mtd.return_type = rtype != typer.end() ? rtype->second : 6;
+    mtd.method_type = proc.is_static ? 4 : 5;
+    mtd.name = proc.name;
     std::uint16_t iidx = 0;
     unsigned arg_counter = 0;
     std::vector<std::tuple<std::uint8_t, std::uint8_t, std::string>> defines;
@@ -560,6 +562,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 {
                     compiling_error(std::get<std::string>(parsed));
                 }
+                break;
             }
             case 5:
             {
@@ -580,6 +583,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 {
                     compiling_error(std::get<std::string>(parsed));
                 }
+                break;
             }
             }
             continue;
@@ -603,6 +607,10 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
     std::sort(defines.begin(), defines.end());
     std::for_each(defines.rbegin(), defines.rend(), [&mtd, &local_variables](decltype(defines)::value_type tup) {
         local_variables[std::get<2>(tup)] = {mtd.stack_size, std::get<1>(tup)};
+        if (std::get<1>(tup) == 6)
+        {
+            mtd.handle_map.push_back(mtd.stack_size);
+        }
         mtd.stack_size += std::get<0>(tup);
     });
     std::uint64_t arg_builder = 0;
@@ -772,10 +780,6 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             int_imm_op(SLLI);
             int_imm_op(SRLI);
             int_imm_op(SRAI);
-        case keywords::keyword::LBL:
-        {
-            continue;
-        }
         case keywords::keyword::ANEW:
         {
             auto length = local_variables[instr.src2];
@@ -821,9 +825,9 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             }
             break;
         }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                                               \
-    case idx:                                                                                                                                                                                                                                               \
-        instruction = ::construct3(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2->second.offset); \
+#define cbr(idx, type, ktype)                                                                                                                                                                                                                                                                                       \
+    case idx:                                                                                                                                                                                                                                                                                                       \
+        instruction = ::construct3(::itype::type##ktype, to_instr->second < static_cast<std::uint16_t>(mtd.instructions.size()), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), src1->second.offset, src2->second.offset); \
         break
 #define branch(ktype, tswitch)                                                                                                    \
     case keywords::keyword::ktype:                                                                                                \
@@ -894,9 +898,9 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         }                                                                 \
         break;                                                            \
     }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                                \
-    case idx:                                                                                                                                                                                                                                \
-        instruction = ::construct3(::itype::type##ktype, to_instr->second < mtd.instructions.size(), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), src1->second.offset, src2); \
+#define cbr(idx, type, ktype)                                                                                                                                                                                                                                                                        \
+    case idx:                                                                                                                                                                                                                                                                                        \
+        instruction = ::construct3(::itype::type##ktype, to_instr->second < static_cast<std::uint16_t>(mtd.instructions.size()), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), src1->second.offset, src2); \
         break
             branch_imm(BEQI, eq);
             branch_imm(BNEQI, eq);
@@ -911,7 +915,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             {
                 compiling_error("Undefined label '" << instr.dest << "'");
             }
-            instruction = ::construct3(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(mtd.instructions.size()) - to_instr->second)), 0, 0);
+            instruction = ::construct3(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), 0, 0);
             break;
         }
         case keywords::keyword::NEG:
@@ -1019,6 +1023,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                 instruction = ::construct40(::itype::LNL, dest->second.offset, 0);
             }
             }
+            break;
         }
         case keywords::keyword::CST:
         {
@@ -1083,12 +1088,702 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             case ::cast_types(5, 4):
                 type = ::itype::DCSTF;
                 break;
-                default:
+            default:
                 compiling_error("Invalid combination of types for src1 and dest (" << src1->second.type << " and " << dest->second.type << ")");
             }
             instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
             break;
         }
+        case keywords::keyword::VNEW:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            mtd.thunks.push_back({instr.src1, static_cast<std::uint16_t>(mtd.instructions.size()), "", location::IMM24, thunk_type::CLASS});
+            instruction = ::construct3(::itype::VNEW, 0, dest->second.offset, 0, 0);
+            break;
+        }
+        case keywords::keyword::IOF:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of instanceof must be an int(2), not " << dest->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Parameter of instanceof must be an object(6), not " << src1->second.type);
+            }
+            instruction = ::construct3(::itype::IOF, 0, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Method name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::METHOD});
+            break;
+        }
+        case keywords::keyword::CVLLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of character instance variable load must be an int(2), not " << dest->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an object(6), not " << src1->second.type);
+            }
+            instruction = ::construct3(::itype::CVLLD, 0, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::SVLLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of short instance variable load must be an int(2), not " << dest->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an object(6), not " << src1->second.type);
+            }
+            instruction = ::construct3(::itype::SVLLD, 0, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::VLLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an object(6), not " << src1->second.type);
+            }
+            ::itype type;
+            switch (dest->second.type)
+            {
+            case 2:
+                type = ::itype::IVLLD;
+                break;
+            case 3:
+                type = ::itype::LVLLD;
+                break;
+            case 4:
+                type = ::itype::FVLLD;
+                break;
+            case 5:
+                type = ::itype::DVLLD;
+                break;
+            case 6:
+                type = ::itype::VVLLD;
+                break;
+            }
+            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::CSTLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of character static variable load must be an int(2), not " << dest->second.type);
+            }
+            instruction = ::construct3(::itype::CSTLD, 0, dest->second.offset, 0, 0);
+            std::size_t split_idx = instr.src1.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src1.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src1.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::SSTLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of short static variable load must be an int(2), not " << dest->second.type);
+            }
+            instruction = ::construct3(::itype::SSTLD, 0, dest->second.offset, 0, 0);
+            std::size_t split_idx = instr.src1.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src1.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src1.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::STLD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            ::itype type;
+            switch (dest->second.type)
+            {
+            case 2:
+                type = ::itype::ISTLD;
+                break;
+            case 3:
+                type = ::itype::LSTLD;
+                break;
+            case 4:
+                type = ::itype::FSTLD;
+                break;
+            case 5:
+                type = ::itype::DSTLD;
+                break;
+            case 6:
+                type = ::itype::VSTLD;
+                break;
+            }
+            instruction = ::construct3(type, 0, dest->second.offset, 0, 0);
+            std::size_t split_idx = instr.src1.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src1.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src1.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::CALD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of character array load must be an int(2), not " << dest->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an array(6), not " << src1->second.type);
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            instruction = ::construct3(::itype::CVLLD, 0, dest->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::SALD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (dest->second.type != 2)
+            {
+                compiling_error("Result of short array load must be an int(2), not " << dest->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an array(6), not " << src1->second.type);
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            instruction = ::construct3(::itype::SVLLD, 0, dest->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::ALD:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must load from an object(6), not " << src1->second.type);
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            ::itype type;
+            switch (dest->second.type)
+            {
+            case 2:
+                type = ::itype::IALD;
+                break;
+            case 3:
+                type = ::itype::LALD;
+                break;
+            case 4:
+                type = ::itype::FALD;
+                break;
+            case 5:
+                type = ::itype::DALD;
+                break;
+            case 6:
+                type = ::itype::VALD;
+                break;
+            }
+            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::CVLSR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an object(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Character instance variable must be stored from int(2), not " << src1->second.type);
+            }
+            instruction = ::construct3(::itype::CVLSR, 0, object->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::SVLSR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an object(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Short instance variable must be stored from int(2), not " << src1->second.type);
+            }
+            instruction = ::construct3(::itype::SVLSR, 0, object->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::VLSR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an object(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            ::itype type;
+            switch (src1->second.type)
+            {
+            case 2:
+                type = ::itype::IVLSR;
+                break;
+            case 3:
+                type = ::itype::LVLSR;
+                break;
+            case 4:
+                type = ::itype::FVLSR;
+                break;
+            case 5:
+                type = ::itype::DVLSR;
+                break;
+            case 6:
+                type = ::itype::VVLSR;
+                break;
+            }
+            instruction = ::construct3(type, 0, object->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.src2.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Instance variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.src2.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.src2.substr(0, split_idx), location::IMM24, thunk_type::IVAR});
+            break;
+        }
+        case keywords::keyword::CSTSR:
+        {
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Character static variable must be stored from int(2), not " << src1->second.type);
+            }
+            instruction = ::construct32(::itype::CSTSR, 0, src1->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::SSTSR:
+        {
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Short static variable must be stored from int(2), not " << src1->second.type);
+            }
+            instruction = ::construct32(::itype::SSTSR, 0, src1->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::STSR:
+        {
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            ::itype type;
+            switch (src1->second.type)
+            {
+            case 2:
+                type = ::itype::ISTSR;
+                break;
+            case 3:
+                type = ::itype::LSTSR;
+                break;
+            case 4:
+                type = ::itype::FSTSR;
+                break;
+            case 5:
+                type = ::itype::DSTSR;
+                break;
+            case 6:
+                type = ::itype::VSTSR;
+                break;
+            }
+            instruction = ::construct32(type, 0, src1->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Static variable name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM32, thunk_type::SVAR});
+            break;
+        }
+        case keywords::keyword::CASR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an array(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Character array must be stored from int(2), not " << src1->second.type);
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            instruction = ::construct3(::itype::CASR, 0, object->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::SASR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an array(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 2)
+            {
+                compiling_error("Short array must be stored from int(2), not " << src1->second.type);
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            instruction = ::construct3(::itype::SASR, 0, object->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::ASR:
+        {
+            auto object = local_variables.find(instr.dest);
+            if (object == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            if (object->second.type != 6)
+            {
+                compiling_error("Must store to an array(6), not " << object->second.type);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 != local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            ::itype type;
+            switch (src1->second.type)
+            {
+            case 2:
+                type = ::itype::IVLSR;
+                break;
+            case 3:
+                type = ::itype::LVLSR;
+                break;
+            case 4:
+                type = ::itype::FVLSR;
+                break;
+            case 5:
+                type = ::itype::DVLSR;
+                break;
+            case 6:
+                type = ::itype::VVLSR;
+                break;
+            }
+            auto src2 = local_variables.find(instr.src2);
+            if (src2 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src2);
+            }
+            if (src2->second.type != 2)
+            {
+                compiling_error("Array index must be of type int(2), not " << src2->second.type);
+            }
+            instruction = ::construct3(type, 0, object->second.offset, src1->second.offset, src2->second.offset);
+            break;
+        }
+        case keywords::keyword::VINV:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must invoke virtual method on an object(6), but " << instr.src1 << " has type " << src1->second.type);
+            }
+            instruction = ::construct24(::itype::VINV, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Method name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM24, thunk_type::METHOD});
+            break;
+        }
+        case keywords::keyword::IINV:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            auto src1 = local_variables.find(instr.src1);
+            if (src1 == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.src1);
+            }
+            if (src1->second.type != 6)
+            {
+                compiling_error("Must invoke interface method on an object(6), but " << instr.src1 << " has type " << src1->second.type);
+            }
+            instruction = ::construct24(::itype::IINV, dest->second.offset, src1->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Method name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM24, thunk_type::METHOD});
+            break;
+        }
+        case keywords::keyword::SINV:
+        {
+            auto dest = local_variables.find(instr.dest);
+            if (dest == local_variables.end())
+            {
+                compiling_error("Undefined variable " << instr.dest);
+            }
+            instruction = ::construct32(::itype::SINV, 0, dest->second.offset, 0);
+            std::size_t split_idx = instr.dest.find_last_of('.');
+            if (split_idx == std::string::npos)
+            {
+                compiling_error("Method name must be delimited from class name by a single period ('.')");
+            }
+            mtd.thunks.push_back({instr.dest.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.dest.substr(0, split_idx), location::IMM32, thunk_type::METHOD});
+            break;
+        }
+        case keywords::keyword::LBL:
+        case keywords::keyword::DEF:
+            continue;
+        case keywords::keyword::BCMP:
+        case keywords::keyword::BADR:
+        case keywords::keyword::NOP:
+        default:
+            compiling_error("Unsupported keyword type in procedure");
         }
         mtd.instructions.push_back(instruction);
     }

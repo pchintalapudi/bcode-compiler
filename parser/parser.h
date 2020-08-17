@@ -37,6 +37,7 @@ namespace oops_bcode_compiler
                 std::string return_type_name;
                 std::vector<variable> parameters;
                 std::vector<instruction> instructions;
+                bool is_static;
             };
             std::vector<procedure> self_methods;
         };

@@ -164,22 +164,64 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
                 {
                 case oops_bcode_compiler::compiler::thunk_type::CLASS:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], class_indexes[thunk.name]);
+                    auto idx = class_indexes.find(thunk.name);
+                    if (idx == class_indexes.end())
+                    {
+                        error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
                 }
                 case oops_bcode_compiler::compiler::thunk_type::METHOD:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], method_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
+                    auto cidx = class_indexes.find(thunk.class_name);
+                    if (cidx == class_indexes.end())
+                    {
+                        error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    auto idx = method_indexes.find({thunk.name, cidx->second});
+                    if (idx == method_indexes.end())
+                    {
+                        error_builder << "Unable to find method name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
                 }
                 case oops_bcode_compiler::compiler::thunk_type::IVAR:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], instance_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
+                    auto cidx = class_indexes.find(thunk.class_name);
+                    if (cidx == class_indexes.end())
+                    {
+                        error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    auto idx = instance_indexes.find({thunk.name, cidx->second});
+                    if (idx == instance_indexes.end())
+                    {
+                        error_builder << "Unable to find instance variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
                 }
                 case oops_bcode_compiler::compiler::thunk_type::SVAR:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], static_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
+                    auto cidx = class_indexes.find(thunk.class_name);
+                    if (cidx == class_indexes.end())
+                    {
+                        error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    auto idx = method_indexes.find({thunk.name, cidx->second});
+                    if (idx == method_indexes.end())
+                    {
+                        error_builder << "Unable to find static variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
+                        return error_builder.str();
+                    }
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
                 }
                 }
