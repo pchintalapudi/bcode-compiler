@@ -17,6 +17,12 @@ namespace
 {
     std::uint64_t string_pool_size(oops_bcode_compiler::parsing::cls &cls)
     {
+        std::uint64_t size = 0;
+        size += std::accumulate(cls.imports.begin() + 6, cls.imports.end(), static_cast<std::size_t>(0), [](std::size_t sum, const std::string &name) { return sum + name.length() + sizeof(std::uint32_t); });
+        size += std::accumulate(cls.methods.begin(), cls.methods.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::method &mtd) { return sum + mtd.name.length() + sizeof(std::uint32_t); });
+        size += std::accumulate(cls.static_variables.begin(), cls.static_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &svar) { return sum + svar.name.length() + sizeof(std::uint32_t); });
+        size += std::accumulate(cls.instance_variables.begin(), cls.instance_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &ivar) { return sum + ivar.name.length() + sizeof(std::uint32_t); });
+        return size;
     }
 
     std::size_t dethunk(oops_bcode_compiler::compiler::thunk &t, std::size_t thunked, std::uint64_t value)

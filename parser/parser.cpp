@@ -453,6 +453,7 @@ namespace
         if (!std::holds_alternative<std::string>(proc)) {
             cls.self_methods.back().is_static = true;
         }
+        return proc;
     }
 #undef parse_helper
 } // namespace
