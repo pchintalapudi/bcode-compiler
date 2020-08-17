@@ -341,21 +341,9 @@ namespace
                 parse_word(instruction.src2);
                 last_word_cleanup(instruction);
             }
-            case kw::LUI:
-            case kw::LLI:
+            case kw::LI:
             case kw::NEG:
-            case kw::ICSTL:
-            case kw::ICSTF:
-            case kw::ICSTD:
-            case kw::LCSTI:
-            case kw::LCSTF:
-            case kw::LCSTD:
-            case kw::FCSTI:
-            case kw::FCSTL:
-            case kw::FCSTD:
-            case kw::DCSTI:
-            case kw::DCSTL:
-            case kw::DCSTF:
+            case kw::CST:
             case kw::CANEW:
             case kw::SANEW:
             case kw::IANEW:
@@ -406,6 +394,18 @@ namespace
                 parse_word(cls.self_methods.back().parameters.back().name);
                 last_word_cleanup(instruction);
             }
+            case kw::EPROC:
+            {
+                std::string name;
+                parse_word(name);
+                last_word(
+                    instruction,
+                    if (name == cls.self_methods.back().name) {
+                        return 0;
+                    } else {
+                        parsing_error("EPROC " << name << " does not match PROC " << cls.self_methods.back().name);
+                    });
+            }
             default:
                 parsing_error(keyword_builder << " is not a valid instruction within a method!");
             }
@@ -427,7 +427,7 @@ namespace
         cls.methods.push_back({cls.imports[6], ""});
         parse_word(cls.methods.back().name);
         last_word(procedure, current++);
-        cls.self_methods.push_back({return_class_name, {}, {}});
+        cls.self_methods.push_back({cls.methods.back().name, return_class_name, {}, {}});
         std::variant<std::pair<char *, std::size_t>, std::string, int> next = std::pair{current, line_number + 1};
         do
         {
@@ -441,8 +441,10 @@ namespace
         else
         {
             do
+            {
                 current++;
-            while (current < end and *current != '\n');
+                column_number++;
+            } while (current < end and *current != '\n');
             if (current == end)
             {
                 return std::pair{current, line_number};

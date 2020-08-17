@@ -22,21 +22,9 @@ namespace oops_bcode_compiler
             DIVI,
             DIVUI,
             NEG,
-            LUI,
-            LLI,
+            LI,
             LNL,
-            ICSTL,
-            ICSTF,
-            ICSTD,
-            LCSTI,
-            LCSTF,
-            LCSTD,
-            FCSTI,
-            FCSTL,
-            FCSTD,
-            DCSTI,
-            DCSTL,
-            DCSTF,
+            CST,
             AND,
             OR,
             XOR,
@@ -64,11 +52,23 @@ namespace oops_bcode_compiler
             BCMP,
             BADR,
             BU,
+            CVLLD,
+            SVLLD,
             VLLD,
+            CVLSR,
+            SVLSR,
             VLSR,
+            CALD,
+            SALD,
             ALD,
+            CASR,
+            SASR,
             ASR,
+            CSTLD,
+            SSTLD,
             STLD,
+            CSTSR,
+            SSTSR,
             STSR,
             VNEW,
             CANEW,
@@ -93,6 +93,7 @@ namespace oops_bcode_compiler
             LBL,
             PROC,
             SPROC,
+            EPROC,
             EXT,
             IMPL,
             CLZ,
@@ -116,21 +117,9 @@ namespace oops_bcode_compiler
             stringize(DIVI);
             stringize(DIVUI);
             stringize(NEG);
-            stringize(LUI);
-            stringize(LLI);
+            stringize(LI);
             stringize(LNL);
-            stringize(ICSTL);
-            stringize(ICSTF);
-            stringize(ICSTD);
-            stringize(LCSTI);
-            stringize(LCSTF);
-            stringize(LCSTD);
-            stringize(FCSTI);
-            stringize(FCSTL);
-            stringize(FCSTD);
-            stringize(DCSTI);
-            stringize(DCSTL);
-            stringize(DCSTF);
+            stringize(CST);
             stringize(AND);
             stringize(OR);
             stringize(XOR);
@@ -187,6 +176,7 @@ namespace oops_bcode_compiler
             stringize(LBL);
             stringize(PROC);
             stringize(SPROC);
+            stringize(EPROC);
             stringize(EXT);
             stringize(IMPL);
             stringize(CLZ);

@@ -2,6 +2,7 @@
 #define COMPILER_COMPILER
 
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include "../parser/parser.h"
@@ -31,7 +32,7 @@ namespace oops_bcode_compiler
         {
             std::string name;
             std::uint32_t instruction_idx;
-            std::uint32_t class_index;
+            std::string class_name;
             location rewrite_location;
             thunk_type type;
         };
@@ -40,7 +41,6 @@ namespace oops_bcode_compiler
         {
             std::vector<std::uint64_t> instructions;
             std::vector<thunk> thunks;
-            std::uint64_t name_offset;
             std::vector<std::uint16_t> handle_map;
             std::uint16_t stack_size;
             std::uint8_t return_type;
@@ -49,7 +49,7 @@ namespace oops_bcode_compiler
             std::uint64_t size;
         };
 
-        method compile(const oops_bcode_compiler::parsing::cls::procedure &procedure);
+        std::variant<method, std::string> compile(const oops_bcode_compiler::parsing::cls::procedure &procedure, std::stringstream& error_builder);
     } // namespace compiler
 } // namespace oops_bcode_compiler
 

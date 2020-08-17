@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <numeric>
 #include <string>
+#include <sstream>
 #include <vector>
 
 #include "../platform_specific/files.h"
@@ -16,7 +17,6 @@ namespace
 {
     std::uint64_t string_pool_size(oops_bcode_compiler::parsing::cls &cls)
     {
-        return 0;
     }
 
     std::size_t dethunk(oops_bcode_compiler::compiler::thunk &t, std::size_t thunked, std::uint64_t value)
@@ -35,8 +35,9 @@ namespace
     }
 } // namespace
 
-bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls)
+std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls)
 {
+    std::stringstream error_builder;
     std::uint64_t classes_offset, methods_offset, statics_offset, instances_offset, bytecode_offset, string_offset;
     classes_offset = 6 * sizeof(std::uint64_t);
     methods_offset = classes_offset + sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t) * cls.imports.size();
@@ -44,7 +45,18 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
     instances_offset = statics_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.static_variables.size();
     bytecode_offset = instances_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.instance_variables.size();
     std::vector<compiler::method> compiled_methods;
-    std::transform(cls.self_methods.begin(), cls.self_methods.end(), std::back_inserter(compiled_methods), compiler::compile);
+    for (auto &proc : cls.self_methods)
+    {
+        auto maybe_method = compiler::compile(proc, error_builder);
+        if (std::holds_alternative<compiler::method>(maybe_method))
+        {
+            compiled_methods.push_back(std::get<compiler::method>(maybe_method));
+        }
+        else
+        {
+            return std::get<std::string>(maybe_method);
+        }
+    }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
     std::uint64_t cls_size = string_offset + string_pool_size(cls);
     if (auto maybe_cls = platform::create_class_file(cls.imports[6], cls_size))
@@ -63,6 +75,12 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
         std::unordered_map<std::string, std::uint32_t> class_indexes = {{"char", 0}, {"short", 1}, {"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
         for (auto imp = cls.imports.begin() + 6; imp != cls.imports.end(); ++imp)
         {
+            if (class_indexes.find(*imp) != class_indexes.end())
+            {
+                error_builder << "Import " << *imp << " was imported twice!";
+                platform::close_file_mapping(*maybe_cls);
+                return error_builder.str();
+            }
             class_indexes[*imp] = imp - cls.imports.begin();
             utils::pun_write(base_head, current_string_offset);
             base_head += sizeof(current_string_offset);
@@ -74,14 +92,19 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
         utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), cls.static_method_count);
         base_head += sizeof(std::uint32_t) * 2;
         std::unordered_map<std::pair<std::string, std::uint32_t>, std::uint32_t, utils::container_hasher<std::pair>> method_indexes;
-        auto bmethod = compiled_methods.begin();
         for (auto method = cls.methods.begin(); method != cls.methods.end(); ++method)
         {
-            if ((method_indexes[{method->name, class_indexes[method->host_name]}] = method - cls.methods.begin()) == 6)
+            if (auto cidx = class_indexes.find(method->host_name); cidx != class_indexes.end())
             {
-                bmethod->name_offset = current_string_offset;
+                utils::pun_write(base_head, cidx->second);
+                method_indexes[{method->name, cidx->second}] = method - cls.methods.begin();
             }
-            utils::pun_write(base_head, class_indexes[method->host_name]);
+            else
+            {
+                error_builder << "Unable to find method import class" << method->host_name << "!";
+                platform::close_file_mapping(*maybe_cls);
+                return error_builder.str();
+            }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
@@ -92,8 +115,17 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
         std::unordered_map<std::pair<std::string, std::uint32_t>, std::uint32_t, utils::container_hasher<std::pair>> static_indexes;
         for (auto svar = cls.static_variables.begin(); svar != cls.static_variables.end(); ++svar)
         {
-            static_indexes[{svar->name, class_indexes[svar->host_name]}] = svar - cls.static_variables.begin();
-            utils::pun_write(base_head, class_indexes[svar->host_name]);
+            if (auto cidx = class_indexes.find(svar->host_name); cidx != class_indexes.end())
+            {
+                static_indexes[{svar->name, cidx->second}] = svar - cls.static_variables.begin();
+                utils::pun_write(base_head, cidx->second);
+            }
+            else
+            {
+                error_builder << "Unable to find static variable import " << svar->host_name << "!";
+                platform::close_file_mapping(*maybe_cls);
+                return error_builder.str();
+            }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
@@ -104,8 +136,17 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
         std::unordered_map<std::pair<std::string, std::uint32_t>, std::uint32_t, utils::container_hasher<std::pair>> instance_indexes;
         for (auto ivar = cls.instance_variables.begin(); ivar != cls.instance_variables.end(); ++ivar)
         {
-            instance_indexes[{ivar->name, class_indexes[ivar->host_name]}] = ivar - cls.instance_variables.begin();
-            utils::pun_write(base_head, class_indexes[ivar->host_name]);
+            if (auto cidx = class_indexes.find(ivar->host_name); cidx != class_indexes.end())
+            {
+                instance_indexes[{ivar->name, cidx->second}] = ivar - cls.instance_variables.begin();
+                utils::pun_write(base_head, cidx->second);
+            }
+            else
+            {
+                error_builder << "Unable to find instance variable import " << ivar->host_name << "!";
+                platform::close_file_mapping(*maybe_cls);
+                return error_builder.str();
+            }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
@@ -128,17 +169,17 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
                 }
                 case oops_bcode_compiler::compiler::thunk_type::METHOD:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], method_indexes[{thunk.name, thunk.class_index}]);
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], method_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
                     break;
                 }
                 case oops_bcode_compiler::compiler::thunk_type::IVAR:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], instance_indexes[{thunk.name, thunk.class_index}]);
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], instance_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
                     break;
                 }
                 case oops_bcode_compiler::compiler::thunk_type::SVAR:
                 {
-                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], static_indexes[{thunk.name, thunk.class_index}]);
+                    method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], static_indexes[{thunk.name, class_indexes[thunk.class_name]}]);
                     break;
                 }
                 }
@@ -191,7 +232,7 @@ bool oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls c
             }
         }
         platform::close_file_mapping(*maybe_cls);
-        return true;
+        return {};
     }
-    return false;
+    return "Unable to open file mapping!";
 }

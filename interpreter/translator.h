@@ -7,7 +7,7 @@ namespace oops_bcode_compiler
 {
     namespace transformer
     {
-        bool write(parsing::cls clz);
+        std::optional<std::string> write(parsing::cls clz);
     } // namespace transformer
 } // namespace oops_bcode_compiler
 #endif /* INTERPRETER_TRANSLATOR */
