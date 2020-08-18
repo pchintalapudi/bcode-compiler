@@ -43,7 +43,7 @@ namespace oops_bcode_compiler
             };
             std::vector<procedure> self_methods;
         };
-        std::optional<std::variant<cls, std::string>> parse(std::string filename);
+        std::optional<std::variant<cls, std::vector<std::string>>> parse(std::string filename);
     } // namespace parsing
 } // namespace oops_bcode_compiler
 #endif /* LEXER_LEXER */

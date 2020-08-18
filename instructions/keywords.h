@@ -55,7 +55,6 @@ namespace oops_bcode_compiler
             BADR,
             //Done
             BU,
-            //TODO
             CVLLD,
             SVLLD,
             VLLD,
@@ -75,30 +74,24 @@ namespace oops_bcode_compiler
             CSTSR,
             SSTSR,
             STSR,
-            //Done
             VNEW,
             ANEW,
             IOF,
-            //TODO
             VINV,
             SINV,
             IINV,
+            //TODO
             RET,
+            //Done
+            DEF,
+            PASS,
+            LBL,
             //Skip
             EXC,
             IMP,
             IVAR,
             SVAR,
-            //Done
-            DEF,
-            PASS,
-            //Skip
-            ARG,
-            //Done
-            LBL,
-            //Skip
             PROC,
-            SPROC,
             EPROC,
             EXT,
             IMPL,
@@ -179,15 +172,13 @@ namespace oops_bcode_compiler
             stringize(IINV);
             stringize(RET);
             stringize(EXC);
+            stringize(DEF);
+            stringize(PASS);
+            stringize(LBL);
             stringize(IMP);
             stringize(IVAR);
             stringize(SVAR);
-            stringize(DEF);
-            stringize(PASS);
-            stringize(ARG);
-            stringize(LBL);
             stringize(PROC);
-            stringize(SPROC);
             stringize(EPROC);
             stringize(EXT);
             stringize(IMPL);

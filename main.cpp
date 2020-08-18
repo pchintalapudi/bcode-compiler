@@ -55,6 +55,12 @@ int compile_with_imports(std::string seed, std::string build_path)
                       << std::get<std::string>(*cls) << std::endl;
             continue;
         }
+        for (auto& imp : std::get<oops_bcode_compiler::parsing::cls>(*cls).imports){
+            if (compiling.find(imp) == compiling.end()) {
+                to_compile.push(imp);
+                compiling.insert(imp);
+            }
+        }
         if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
         {
             std::cerr << "Failed to fully write '" << class_file << "' due to error:\n"

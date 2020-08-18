@@ -3,456 +3,322 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <iostream>
 
 using namespace oops_bcode_compiler::parsing;
 
 namespace
 {
-
-#define parsing_error(message)                                         \
-    error_builder << message << " (at Line: "                          \
-                  << line_number << ", Col: " << column_number << ")"; \
-    return error_builder.str()
-
-#define unexpected_eof parsing_error("Unexpected EOF while parsing import")
-
-#define unexpected_eol parsing_error("Unexpected end of line while parsing import")
-
-#define skip_whitespace  \
-    do                   \
-    {                    \
-        column_number++; \
-        current++;       \
-    } while (current < end and *current != '\n' and std::isspace(*current))
-
-#define guard_end                            \
-    if (current == end)                      \
-    {                                        \
-        unexpected_eof;                      \
-    }                                        \
-    if (*current == ';' or *current == '\n') \
-    {                                        \
-        unexpected_eol;                      \
-    }
-
-#define maybe_empty(action, nonempty)                 \
-    if (current == end)                               \
-    {                                                 \
-        return std::pair{current, line_number};       \
-    }                                                 \
-    if (*current != ';' and *current != '\n')         \
-    {                                                 \
-        skip_whitespace;                              \
-        if (current == end)                           \
-        {                                             \
-            return std::pair{current, line_number};   \
-        }                                             \
-    }                                                 \
-    if (*current == ';')                              \
-    {                                                 \
-        do                                            \
-        {                                             \
-            current++;                                \
-            column_number++;                          \
-        } while (current < end and *current != '\n'); \
-        if (current == end)                           \
-        {                                             \
-            return std::pair{current, line_number};   \
-        }                                             \
-    }                                                 \
-    if (*current == '\n')                             \
-    {                                                 \
-        action;                                       \
-    }                                                 \
-    else                                              \
-    {                                                 \
-        nonempty;                                     \
-    }
-
-#define last_word(type, action) maybe_empty(action, parsing_error("Unexpected character '" << *current << "' after " #type " statement"))
-
-#define last_word_cleanup(type) last_word(type, return (std::pair{current + 1, line_number + 1}))
-
-#define parse_unsigned_index(name)         \
-    std::uint32_t name = 0;                \
-    do                                     \
-    {                                      \
-        name = name * 10 + *current - '0'; \
-        current++;                         \
-        column_number++;                   \
-    } while (current < end and std::isdigit(*current))
-
-#define parse_word(string)    \
-    do                        \
-    {                         \
-        string += *current++; \
-        column_number++;      \
-    } while (current < end and *current != ';' and !std::isspace(*current))
-
-#define dispatch(key, name)                                                                      \
-    case keywords::keyword::key:                                                                 \
-    {                                                                                            \
-        auto error = parse_##name(current, end, ret, line_number, column_number, error_builder); \
-        if (std::holds_alternative<std::string>(error))                                          \
-        {                                                                                        \
-            return std::get<std::string>(error);                                                 \
-        }                                                                                        \
-        else                                                                                     \
-        {                                                                                        \
-            std::tie(current, line_number) = std::get<std::pair<char *, std::size_t>>(error);    \
-        }                                                                                        \
-        break;                                                                                   \
-    }
-#define parse_helper(type) std::variant<std::pair<char *, std::size_t>, std::string> parse_##type(char *current, char *end, oops_bcode_compiler::parsing::cls &cls, std::size_t line_number, std::size_t column_number, std::stringstream &error_builder)
-
-    parse_helper(import)
+    struct token
     {
-        skip_whitespace;
-        guard_end;
-        if (*current == '#')
+        std::string token;
+        std::size_t line_number;
+        std::size_t column_number;
+    };
+
+    std::vector<token> lex(char *current, char *end)
+    {
+        std::vector<token> tokens;
+        std::size_t line_number, column_number;
+        token next = {"", line_number, column_number};
+        bool skip = false;
+        while (current < end)
         {
-            current++;
-            guard_end;
-            if (std::isspace(*current))
+            column_number++;
+            char c = *current++;
+            if (!skip)
             {
-                skip_whitespace;
-                guard_end;
-            }
-            std::string import_name;
-            parse_word(import_name);
-            guard_end;
-            skip_whitespace;
-            guard_end;
-            std::string keyword_builder;
-            parse_word(keyword_builder);
-            guard_end;
-            skip_whitespace;
-            guard_end;
-            std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
-            if (auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(keyword_builder); keyword != oops_bcode_compiler::keywords::string_to_keywords.end())
-            {
-                std::string *builder_ptr;
-                switch (keyword->second)
+                if (std::isspace(c))
                 {
-                case oops_bcode_compiler::keywords::keyword::PROC:
+                    if (!next.token.empty())
+                    {
+                        tokens.push_back(std::move(next));
+                        next.token.clear();
+                    }
+                    if (c == '\n')
+                    {
+                        line_number++;
+                    }
+                }
+                else if (c == ';')
                 {
-                    cls.methods.push_back({import_name, ""});
-                    builder_ptr = &cls.methods.back().name;
-                    break;
+                    skip = true;
                 }
-                case oops_bcode_compiler::keywords::keyword::IVAR:
+                else
                 {
-                    cls.instance_variables.push_back({import_name, ""});
-                    builder_ptr = &cls.instance_variables.back().name;
-                    break;
+                    if (next.token.empty())
+                    {
+                        next.line_number = line_number;
+                        next.column_number = column_number;
+                    }
+                    next.token += c;
                 }
-                case oops_bcode_compiler::keywords::keyword::SVAR:
-                {
-                    cls.methods.push_back({import_name, ""});
-                    builder_ptr = &cls.static_variables.back().name;
-                    break;
-                }
-                default:
-                    parsing_error(keyword_builder << " is not valid within an import statement!");
-                }
-                skip_whitespace;
-                guard_end;
-                parse_word(*builder_ptr);
-                last_word_cleanup(import);
             }
             else
             {
-                parsing_error(keyword_builder << " is not a valid keyword!");
+                skip = (c != '\n');
+                line_number += !skip;
             }
         }
-        else
+        if (!next.token.empty())
         {
-            std::string &builder = cls.imports.emplace_back();
-            parse_word(builder);
-            last_word_cleanup(import);
+            tokens.push_back(std::move(next));
         }
+        return tokens;
     }
 
-    parse_helper(extends)
+    std::string parse(std::vector<token> &line, bool &in_proc, oops_bcode_compiler::parsing::cls &cls)
     {
-        if (cls.imports.size() != 7)
+#define parse_error(error, line_number, column_number)                                                                \
+    std::stringstream error_builder;                                                                                  \
+    error_builder << "Parsing error: \"" << error << "\" at line " << line_number << " and column " << column_number; \
+    return error_builder.str()
+        if (!line.empty())
         {
-            parsing_error("Non-extended class already defined!");
-        }
-        cls.implement_count++;
-        return parse_import(current, end, cls, line_number, column_number, error_builder);
-    }
-    parse_helper(implements)
-    {
-        if (cls.imports.size() != 6 + cls.implement_count + 1)
-        {
-            parsing_error("Non-extended class already defined!");
-        }
-        cls.implement_count++;
-        return parse_import(current, end, cls, line_number, column_number, error_builder);
-    }
-
-    parse_helper(instance_variable)
-    {
-        skip_whitespace;
-        guard_end;
-        if (!std::isdigit(*current))
-        {
-            parsing_error("Unexpected non-digit character!");
-        }
-        std::string import_name;
-        parse_word(import_name);
-        guard_end;
-        if (!std::isspace(*current))
-        {
-            parsing_error("Unexpected non-digit character!");
-        }
-        skip_whitespace;
-        guard_end;
-        cls.self_instances.push_back({import_name, ""});
-        parse_word(cls.self_instances.back().name);
-        last_word_cleanup(instance_variable);
-    }
-
-    parse_helper(static_variable)
-    {
-        skip_whitespace;
-        guard_end;
-        if (!std::isdigit(*current))
-        {
-            parsing_error("Unexpected non-digit character");
-        }
-        std::string import_name;
-        parse_word(import_name);
-        guard_end;
-        if (!std::isspace(*current))
-        {
-            parsing_error("Unexpected non-digit character while parsing import index!");
-        }
-        skip_whitespace;
-        guard_end;
-        cls.self_statics.push_back({import_name, ""});
-        parse_word(cls.self_statics.back().name);
-        last_word_cleanup(static_variable);
-    }
-
-    parse_helper(class)
-    {
-        skip_whitespace;
-        guard_end;
-        if (cls.imports.size() != 6)
-        {
-            parsing_error("Extra imports before class name!");
-        }
-        cls.imports.push_back("");
-        parse_word(cls.imports.back());
-        last_word_cleanup(class);
-    }
-
-    std::variant<std::pair<char *, std::size_t>, std::string, int> parse_line(char *current, char *end, oops_bcode_compiler::parsing::cls &cls, std::size_t line_number, std::size_t column_number, std::stringstream &error_builder)
-    {
-        maybe_empty(return 0;, );
-        std::string keyword_builder;
-        parse_word(keyword_builder);
-        guard_end;
-        typedef oops_bcode_compiler::keywords::keyword kw;
-        std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
-        if (auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(keyword_builder); keyword != oops_bcode_compiler::keywords::string_to_keywords.end())
-        {
+            std::transform(line[0].token.begin(), line[0].token.end(), line[0].token.begin(), [](unsigned char c) { return std::toupper(c); });
+            auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(line[0].token);
+            if (keyword == oops_bcode_compiler::keywords::string_to_keywords.end())
+            {
+                parse_error(line[0].token << " is not a valid keyword", line[0].line_number, line[0].column_number);
+            }
             switch (keyword->second)
             {
+#define check_in_proc(key)                                                                                                        \
+    case oops_bcode_compiler::keywords::keyword::key:                                                                             \
+        if (!in_proc)                                                                                                             \
+        {                                                                                                                         \
+            parse_error("Expected " << line[0].token << " to be inside a procedure", line[0].line_number, line[0].column_number); \
+        }
+#define check_out_proc(key)                                                                                                           \
+    case oops_bcode_compiler::keywords::keyword::key:                                                                                 \
+        if (in_proc)                                                                                                                  \
+        {                                                                                                                             \
+            parse_error("Expected " << line[0].token << " to not be inside a procedure", line[0].line_number, line[0].column_number); \
+        }
+#define require_min_args(count)                                                                                                                                                                                \
+    if (line.size() < count)                                                                                                                                                                                   \
+    {                                                                                                                                                                                                          \
+        parse_error("Too few arguments for keyword " << line[0].token << " (" << line.size() << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
+    }
+#define require_args(count)                                                                                                                                                                                     \
+    require_min_args(count);                                                                                                                                                                                    \
+    if (line.size() > count)                                                                                                                                                                                    \
+    {                                                                                                                                                                                                           \
+        parse_error("Too many arguments for keyword " << line[0].token << " (" << line.size() << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
+    }
+                check_out_proc(CLZ)
+                {
+                    require_args(2);
+                    if (cls.imports.size() > 6)
+                    {
+                        parse_error("Class name must be the first import!", line[0].line_number, line[0].column_number);
+                    }
+                    cls.imports.push_back(std::move(line[1].token));
+                    break;
+                }
+                check_out_proc(EXT)
+                {
+                    require_args(2);
+                    if (cls.imports.size() > 7)
+                    {
+                        parse_error("Superclass must be the second import!", line[0].line_number, line[0].column_number);
+                    }
+                    cls.implement_count++;
+                    cls.imports.push_back(std::move(line[1].token));
+                    break;
+                }
+                check_out_proc(IMPL)
+                {
+                    require_args(2);
+                    if (cls.imports.size() > 7 + cls.implement_count)
+                    {
+                        parse_error("All superinterfaces must come before any other imports!", line[0].line_number, line[0].column_number);
+                    }
+                    cls.implement_count++;
+                    cls.imports.push_back(std::move(line[1].token));
+                }
+                check_out_proc(IMP)
+                {
+                    require_args(3);
+                    auto type = oops_bcode_compiler::keywords::string_to_keywords.find(line[1].token);
+                    if (type == oops_bcode_compiler::keywords::string_to_keywords.end())
+                    {
+                        parse_error("Second import argument must be CLZ, PROC, IVAR, or SVAR!", line[1].line_number, line[1].column_number);
+                    }
+                    switch (type->second)
+                    {
+                    case oops_bcode_compiler::keywords::keyword::CLZ:
+                    {
+                        cls.imports.push_back(std::move(line[2].token));
+                        break;
+                    }
+                    case oops_bcode_compiler::keywords::keyword::PROC:
+                    {
+                        std::size_t split_idx = line[2].token.find_last_of('.');
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        break;
+                    }
+                    case oops_bcode_compiler::keywords::keyword::IVAR:
+                    {
+                        std::size_t split_idx = line[2].token.find_last_of('.');
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        break;
+                    }
+                    case oops_bcode_compiler::keywords::keyword::SVAR:
+                    {
+                        std::size_t split_idx = line[2].token.find_last_of('.');
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        break;
+                    }
+                    default:
+                        parse_error("Second import argument must be CLZ, PROC, IVAR, or SVAR!", line[1].line_number, line[1].column_number);
+                    }
+                    break;
+                }
+                check_out_proc(IVAR)
+                {
+                    require_args(3);
+                    cls.instance_variables.push_back({cls.imports[6], line[2].token});
+                    cls.self_instances.push_back({std::move(line[1].token), std::move(line[2].token)});
+                    break;
+                }
+                check_out_proc(SVAR)
+                {
+                    require_args(3);
+                    cls.static_variables.push_back({cls.imports[6], line[2].token});
+                    cls.self_statics.push_back({std::move(line[1].token), std::move(line[2].token)});
+                    break;
+                }
+                check_out_proc(PROC)
+                {
+                    require_min_args(3);
+                    std::size_t begin;
+                    if (line[1].token == "static")
+                    {
+                        require_min_args(4);
+                        cls.self_methods.push_back({line[3].token, line[2].token, {}, {}, true});
+                        begin = 4;
+                    }
+                    else
+                    {
+                        cls.self_methods.push_back({line[2].token, line[1].token, {}, {}, false});
+                        begin = 3;
+                    }
+                    in_proc = true;
+                    if (line.size() > begin)
+                    {
+                        if ((line.size() - begin) % 2)
+                        {
+                            parse_error("Arguments must come in pairs of type and name!", line.back().line_number, line.back().column_number);
+                        }
+                        cls.self_methods.back().parameters.reserve((line.size() - begin) / 2);
+                        do
+                        {
+                            cls.self_methods.back().parameters.push_back({std::move(line[begin].token), std::move(line[begin + 1].token)});
+                            if (auto &argname = cls.self_methods.back().parameters.back().name; argname.back() == ',')
+                            {
+                                argname.pop_back();
+                            }
+                            begin += 2;
+                        } while (begin < line.size());
+                    }
+                    break;
+                }
+                typedef oops_bcode_compiler::keywords::keyword kw;
             case kw::ADD:
-            case kw::ADDI:
-            case kw::AND:
-            case kw::ANDI:
-            case kw::DIV:
-            case kw::DIVI:
-            case kw::DIVU:
-            case kw::DIVUI:
-            case kw::MUL:
-            case kw::MULI:
-            case kw::OR:
-            case kw::ORI:
-            case kw::SLL:
-            case kw::SLLI:
-            case kw::SRA:
-            case kw::SRAI:
-            case kw::SRL:
-            case kw::SRLI:
             case kw::SUB:
+            case kw::MUL:
+            case kw::DIV:
+            case kw::DIVU:
+            case kw::ADDI:
             case kw::SUBI:
+            case kw::MULI:
+            case kw::DIVI:
+            case kw::DIVUI:
+            case kw::AND:
+            case kw::OR:
             case kw::XOR:
+            case kw::SLL:
+            case kw::SRL:
+            case kw::SRA:
+            case kw::ANDI:
+            case kw::ORI:
             case kw::XORI:
-            case kw::BEQ:
-            case kw::BEQI:
+            case kw::SLLI:
+            case kw::SRLI:
+            case kw::SRAI:
             case kw::BGE:
-            case kw::BGEI:
-            case kw::BGT:
-            case kw::BGTI:
-            case kw::BLE:
-            case kw::BLEI:
             case kw::BLT:
-            case kw::BLTI:
+            case kw::BLE:
+            case kw::BGT:
+            case kw::BEQ:
             case kw::BNEQ:
+            case kw::BGEI:
+            case kw::BLTI:
+            case kw::BLEI:
+            case kw::BGTI:
+            case kw::BEQI:
             case kw::BNEQI:
-            case kw::BU:
             case kw::CVLLD:
             case kw::CVLSR:
-            case kw::CSTLD:
-            case kw::CSTSR:
-            case kw::CALD:
-            case kw::CASR:
             case kw::SVLLD:
             case kw::SVLSR:
-            case kw::SSTLD:
-            case kw::SSTSR:
-            case kw::SALD:
-            case kw::SASR:
             case kw::VLLD:
             case kw::VLSR:
-            case kw::STLD:
-            case kw::STSR:
+            case kw::CALD:
+            case kw::CASR:
+            case kw::SALD:
+            case kw::SASR:
             case kw::ALD:
             case kw::ASR:
-            case kw::VINV:
-            case kw::SINV:
-            case kw::IINV:
-            case kw::ANEW:
-            case kw::ALEN:
-            {
-                cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
-                auto instruction = cls.self_methods.back().instructions.back();
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.dest);
-                guard_end;
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.src1);
-                guard_end;
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.src2);
-                last_word_cleanup(instruction);
-            }
-            case kw::LI:
             case kw::NEG:
-            case kw::CST:
-            case kw::DEF:
-            case kw::VNEW:
             case kw::IOF:
-            {
-                cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
-                auto instruction = cls.self_methods.back().instructions.back();
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.dest);
-                guard_end;
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.src1);
-                last_word_cleanup(instruction);
-            }
-            case kw::RET:
-            case kw::PASS:
-            case kw::LBL:
-            {
-                cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
-                auto instruction = cls.self_methods.back().instructions.back();
-                skip_whitespace;
-                guard_end;
-                parse_word(instruction.dest);
-                last_word_cleanup(instruction);
-            }
-            case kw::ARG:
-            {
-                skip_whitespace;
-                guard_end;
-                std::string import_name;
-                parse_word(import_name);
-                guard_end;
-                if (!std::isspace(*current))
+            case kw::VINV:
+                check_in_proc(IINV)
                 {
-                    parsing_error("Unexpected non-digit character while parsing import index!");
+                    require_args(4);
+                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), std::move(line[1].token), std::move(line[0].token), keyword->second});
+                    break;
                 }
-                skip_whitespace;
-                guard_end;
-                cls.self_methods.back().parameters.push_back({import_name, ""});
-                parse_word(cls.self_methods.back().parameters.back().name);
-                last_word_cleanup(instruction);
-            }
-            case kw::EPROC:
-            {
-                std::string name;
-                parse_word(name);
-                last_word(
-                    instruction,
-                    if (name == cls.self_methods.back().name) {
-                        return 0;
-                    } else {
-                        parsing_error("EPROC " << name << " does not match PROC " << cls.self_methods.back().name);
-                    });
-            }
-            default:
-                parsing_error(keyword_builder << " is not a valid instruction within a method!");
+            case kw::SINV:
+            case kw::CSTLD:
+            case kw::CSTSR:
+            case kw::SSTLD:
+            case kw::SSTSR:
+            case kw::STLD:
+            case kw::STSR:
+            case kw::LI:
+            case kw::CST:
+            case kw::ALEN:
+            case kw::VNEW:
+            case kw::ANEW:
+                check_in_proc(DEF)
+                {
+                    require_args(3);
+                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), std::move(line[1].token), "", keyword->second});
+                    break;
+                }
+            case kw::PASS:
+            case kw::RET:
+            case kw::LBL:
+                check_in_proc(BU)
+                {
+                    require_args(2);
+                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), "", "", keyword->second});
+                    break;
+                }
+            case kw::BCMP:
+            case kw::BADR:
+            case kw::NOP:
+            case kw::EXC:
+                parse_error(line[0].token << " is a keyword not implemented in the parser", line[0].line_number, line[0].column_number);
             }
         }
-        else
-        {
-            parsing_error(keyword_builder << " is not a valid keyword!");
-        }
+        return "";
     }
-
-    parse_helper(procedure)
-    {
-        skip_whitespace;
-        guard_end;
-        std::string return_class_name;
-        parse_word(return_class_name);
-        guard_end;
-        skip_whitespace;
-        cls.methods.push_back({cls.imports[6], ""});
-        parse_word(cls.methods.back().name);
-        last_word(procedure, current++);
-        cls.self_methods.push_back({cls.methods.back().name, return_class_name, {}, {}, false});
-        std::variant<std::pair<char *, std::size_t>, std::string, int> next = std::pair{current, line_number + 1};
-        do
-        {
-            std::tie(current, line_number) = std::get<std::pair<char *, std::size_t>>(next);
-            next = parse_line(current, end, cls, line_number, column_number, error_builder);
-        } while (std::holds_alternative<std::pair<char *, std::size_t>>(next));
-        if (std::holds_alternative<std::string>(next))
-        {
-            return std::get<std::string>(next);
-        }
-        else
-        {
-            do
-            {
-                current++;
-                column_number++;
-            } while (current < end and *current != '\n');
-            if (current == end)
-            {
-                return std::pair{current, line_number};
-            }
-            return std::pair{current + 1, line_number + 1};
-        }
-    }
-
-    parse_helper(static_procedure)
-    {
-        cls.static_method_count++;
-        auto proc = parse_procedure(current, end, cls, line_number, column_number, error_builder);
-        if (!std::holds_alternative<std::string>(proc)) {
-            cls.self_methods.back().is_static = true;
-        }
-        return proc;
-    }
-#undef parse_helper
 } // namespace
 
-std::optional<std::variant<cls, std::string>> oops_bcode_compiler::parsing::parse(std::string filename)
+std::optional<std::variant<cls, std::vector<std::string>>> oops_bcode_compiler::parsing::parse(std::string filename)
 {
     auto mapping = platform::open_class_file_mapping(filename);
     if (!mapping)
@@ -465,41 +331,33 @@ std::optional<std::variant<cls, std::string>> oops_bcode_compiler::parsing::pars
         ret.imports.emplace_back(imp);
     }
     ret.implement_count = ret.static_method_count = 0;
-    std::stringstream error_builder;
-    std::string keyword_builder;
     char *current = mapping->mmapped_file, *end = current + mapping->file_size;
-    std::size_t line_number = 0, column_number = 0;
-    while (current < end)
+    bool in_proc = false;
+    std::vector<std::string> errors;
+    std::vector<token> line;
+    for (auto &&token : ::lex(current, end))
     {
-        if (std::isspace(*current))
+        if (!line.empty() and line.back().line_number != token.line_number)
         {
-            skip_whitespace;
-            guard_end;
-        }
-        parse_word(keyword_builder);
-        guard_end;
-        std::transform(keyword_builder.begin(), keyword_builder.end(), keyword_builder.begin(), [](char c) { return std::toupper(static_cast<unsigned char>(c)); });
-        if (auto keyword = keywords::string_to_keywords.find(keyword_builder); keyword != keywords::string_to_keywords.end())
-        {
-            switch (keyword->second)
+            if (auto error = ::parse(line, in_proc, ret); !error.empty())
             {
-                dispatch(CLZ, class);
-                dispatch(IMP, import);
-                dispatch(IVAR, instance_variable);
-                dispatch(SVAR, static_variable);
-                dispatch(PROC, procedure);
-                dispatch(SPROC, static_procedure);
-                dispatch(EXT, extends);
-                dispatch(IMPL, implements);
-            default:
-                parsing_error("Keyword '" << keyword_builder << "' is not a class-level keyword!");
+                errors.push_back(std::move(error));
             }
+            line.clear();
         }
-        else
-        {
-            parsing_error("Unknown keyword '" << keyword_builder << "'");
-        }
+        line.push_back(std::move(token));
+    }
+    if (!line.empty())
+    {
+        ::parse(line, in_proc, ret);
     }
     platform::close_file_mapping(*mapping);
-    return ret;
+    if (errors.empty())
+    {
+        return ret;
+    }
+    else
+    {
+        return errors;
+    }
 }

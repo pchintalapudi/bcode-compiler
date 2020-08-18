@@ -1,6 +1,7 @@
 #include "files.h"
 
 #include <cstring>
+#include <iostream>
 
 using namespace oops_bcode_compiler::platform;
 
@@ -15,8 +16,9 @@ namespace
         lpcstr.reserve(name.length() + build_path.length() + 1);
         lpcstr += build_path;
         for (auto c : name) {
-            lpcstr += c == '.' ? '\\' : c;
+            lpcstr += c == '.' ? '/' : c;
         }
+        std::cout << "Normalized class name = " << lpcstr << std::endl;
         return lpcstr;
     }
 } // namespace
@@ -24,26 +26,31 @@ namespace
 std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mapping(std::string name)
 {
     std::string lpcstr = ::normalize_file_name(name, platform::get_working_path()) + ".boops";
+    std::cout << "Looking for class file in " << lpcstr << std::endl;
     void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, NULL);
     if (file_handle == INVALID_HANDLE_VALUE)
     {
+        std::cout << "Failed to create file handle" << std::endl;
         return {};
     }
     LARGE_INTEGER file_size;
     if (!GetFileSizeEx(file_handle, &file_size))
     {
+        std::cout << "Failed to get file size" << std::endl;
         CloseHandle(file_handle);
         return {};
     }
     void *file_map_handle = CreateFileMapping(file_handle, NULL, PAGE_READONLY, 0, 0, lpcstr.c_str());
     if (file_map_handle == NULL)
     {
+        std::cout << "Failed to create file mapping handle" << std::endl;
         CloseHandle(file_handle);
         return {};
     }
     void *mmap_handle = MapViewOfFile(file_map_handle, FILE_MAP_READ, 0, 0, 0);
     if (mmap_handle == NULL)
     {
+        std::cout << "Failed to map view of file" << std::endl;
         CloseHandle(file_map_handle);
         CloseHandle(file_handle);
         return {};
@@ -78,7 +85,7 @@ void oops_bcode_compiler::platform::close_file_mapping(file_mapping fm)
 
 const char *oops_bcode_compiler::platform::get_working_path()
 {
-    return ".\\";
+    return "./";
 }
 
 const char *oops_bcode_compiler::platform::get_executable_path()
