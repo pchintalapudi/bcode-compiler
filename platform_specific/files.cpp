@@ -7,9 +7,23 @@ using namespace oops_bcode_compiler::platform;
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
 #include "windows.h"
 
+namespace
+{
+    std::string normalize_file_name(std::string name, std::string build_path)
+    {
+        std::string lpcstr;
+        lpcstr.reserve(name.length() + build_path.length() + 1);
+        lpcstr += build_path;
+        for (auto c : name) {
+            lpcstr += c == '.' ? '\\' : c;
+        }
+        return lpcstr;
+    }
+} // namespace
+
 std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mapping(std::string name)
 {
-    std::string lpcstr = normalize_file_name(name);
+    std::string lpcstr = ::normalize_file_name(name, platform::get_working_path()) + ".boops";
     void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, NULL);
     if (file_handle == INVALID_HANDLE_VALUE)
     {
@@ -37,9 +51,9 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
     return {{static_cast<char *>(mmap_handle), file_map_handle, file_handle, static_cast<std::size_t>(file_size.QuadPart)}};
 }
 
-std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std::string name, std::size_t file_size)
+std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std::string name, std::size_t file_size, std::string build_path)
 {
-    std::string lpcstr = normalize_file_name(name);
+    std::string lpcstr = ::normalize_file_name(name, build_path) + ".coops";
     if (void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL); file_handle != NULL)
     {
         if (void *file_mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READWRITE, file_size & (~static_cast<std::size_t>(0) >> (CHAR_BIT * sizeof(DWORD))), file_size >> (CHAR_BIT * sizeof(DWORD)), lpcstr.c_str()); file_mapping_handle != NULL)
@@ -53,35 +67,6 @@ std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std
         CloseHandle(file_handle);
     }
     return {};
-}
-
-std::string oops_bcode_compiler::platform::normalize_file_name(std::string name)
-{
-    constexpr const char *bootstrap = "oops";
-    constexpr const char *ending = ".boops";
-    std::string lpcstr;
-    if (name.length() - std::strlen(ending) > std::strlen(bootstrap) && std::memcmp(bootstrap, name.c_str(), std::strlen(bootstrap)))
-    {
-        lpcstr += platform::get_executable_path();
-    }
-    else
-    {
-        lpcstr += platform::get_working_path();
-    }
-    lpcstr.reserve(lpcstr.length() + name.length() + sizeof(ending));
-    for (char c : name)
-    {
-        if (c == '.')
-        {
-            lpcstr += '\\';
-        }
-        else
-        {
-            lpcstr += c;
-        }
-    }
-    lpcstr += ending;
-    return lpcstr;
 }
 
 void oops_bcode_compiler::platform::close_file_mapping(file_mapping fm)

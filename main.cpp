@@ -5,8 +5,9 @@
 
 #include "parser/parser.h"
 #include "interpreter/translator.h"
+#include "platform_specific/files.h"
 
-int compile_standalone(std::string class_file)
+int compile_standalone(std::string class_file, std::string build_path)
 {
     auto cls = oops_bcode_compiler::parsing::parse(class_file);
     if (!cls)
@@ -20,7 +21,7 @@ int compile_standalone(std::string class_file)
                   << std::get<std::string>(*cls) << std::endl;
         return 1;
     }
-    if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls)))
+    if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
     {
         std::cerr << "Failed to fully write '" << class_file << "' due to error:\n"
                   << *failure << std::endl;
@@ -30,7 +31,7 @@ int compile_standalone(std::string class_file)
     return 0;
 }
 
-int compile_with_imports(std::string seed)
+int compile_with_imports(std::string seed, std::string build_path)
 {
     std::queue<std::string> to_compile;
     std::unordered_set<std::string> compiling;
@@ -54,7 +55,7 @@ int compile_with_imports(std::string seed)
                       << std::get<std::string>(*cls) << std::endl;
             continue;
         }
-        if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls)))
+        if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
         {
             std::cerr << "Failed to fully write '" << class_file << "' due to error:\n"
                       << *failure << std::endl;
@@ -67,7 +68,7 @@ int compile_with_imports(std::string seed)
 
 int main(int argc, char **argv)
 {
-    std::unordered_map<std::string, std::size_t> args;
+    std::unordered_map<std::string, int> args;
     while (argc-- > 0)
     {
         args[argv[argc]] = argc;
@@ -77,17 +78,28 @@ int main(int argc, char **argv)
     {
         to_compile = args.find("-f");
     }
-    if (to_compile == args.end())
+    if (to_compile == args.end() or to_compile->second == argc - 1)
     {
         std::cerr << "No file argument provided!" << std::endl;
         return 1;
     }
+    std::string build_path;
+    auto out_dir = args.find("--build-path");
+    if (out_dir == args.end()) {
+        out_dir = args.find("-b");
+    }
+    if (out_dir == args.end() or out_dir->second == argc - 1) {
+        build_path = oops_bcode_compiler::platform::get_working_path();
+    } else {
+        build_path = argv[out_dir->second + 1];
+    }
+
     if (args.find("--compile-imports") != args.end())
     {
-        return compile_with_imports(argv[to_compile->second + 1]);
+        return compile_with_imports(argv[to_compile->second + 1], build_path);
     }
     else
     {
-        return compile_standalone(argv[to_compile->second + 1]);
+        return compile_standalone(argv[to_compile->second + 1], build_path);
     }
 }

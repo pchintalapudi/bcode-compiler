@@ -41,7 +41,7 @@ namespace
     }
 } // namespace
 
-std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls)
+std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls, std::string build_path)
 {
     std::stringstream error_builder;
     std::uint64_t classes_offset, methods_offset, statics_offset, instances_offset, bytecode_offset, string_offset;
@@ -65,7 +65,7 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
     }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
     std::uint64_t cls_size = string_offset + string_pool_size(cls);
-    if (auto maybe_cls = platform::create_class_file(cls.imports[6], cls_size))
+    if (auto maybe_cls = platform::create_class_file(cls.imports[6], cls_size, build_path))
     {
         utils::pun_write(maybe_cls->mmapped_file, classes_offset);
         utils::pun_write(maybe_cls->mmapped_file, methods_offset);

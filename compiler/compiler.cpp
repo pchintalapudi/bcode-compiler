@@ -713,6 +713,15 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             int_imm_op(SLLI);
             int_imm_op(SRLI);
             int_imm_op(SRAI);
+        case keywords::keyword::ALEN:
+        {
+            lookup_variable(dest);
+            lookup_variable(src1);
+            require_type(dest, 2);
+            require_type(src1, 6);
+            instruction = ::construct3(::itype::IVLLD, 0, dest->second.offset, src1->second.offset, 0);
+            break;
+        }
         case keywords::keyword::ANEW:
         {
             lookup_variable(src2);

@@ -296,6 +296,18 @@ namespace
             case kw::BNEQ:
             case kw::BNEQI:
             case kw::BU:
+            case kw::CVLLD:
+            case kw::CVLSR:
+            case kw::CSTLD:
+            case kw::CSTSR:
+            case kw::CALD:
+            case kw::CASR:
+            case kw::SVLLD:
+            case kw::SVLSR:
+            case kw::SSTLD:
+            case kw::SSTSR:
+            case kw::SALD:
+            case kw::SASR:
             case kw::VLLD:
             case kw::VLSR:
             case kw::STLD:
@@ -306,6 +318,7 @@ namespace
             case kw::SINV:
             case kw::IINV:
             case kw::ANEW:
+            case kw::ALEN:
             {
                 cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
                 auto instruction = cls.self_methods.back().instructions.back();
@@ -342,6 +355,7 @@ namespace
             }
             case kw::RET:
             case kw::PASS:
+            case kw::LBL:
             {
                 cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
                 auto instruction = cls.self_methods.back().instructions.back();

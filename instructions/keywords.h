@@ -65,6 +65,7 @@ namespace oops_bcode_compiler
             CALD,
             SALD,
             ALD,
+            ALEN,
             CASR,
             SASR,
             ASR,
@@ -151,10 +152,23 @@ namespace oops_bcode_compiler
             stringize(BCMP);
             stringize(BADR);
             stringize(BU);
+            stringize(CVLLD);
+            stringize(CVLSR);
+            stringize(SVLLD);
+            stringize(SVLSR);
             stringize(VLLD);
             stringize(VLSR);
+            stringize(CALD);
+            stringize(CASR);
+            stringize(SALD);
+            stringize(SASR);
             stringize(ALD);
             stringize(ASR);
+            stringize(ALEN);
+            stringize(CSTLD);
+            stringize(CSTSR);
+            stringize(SSTLD);
+            stringize(SSTSR);
             stringize(STLD);
             stringize(STSR);
             stringize(VNEW);
