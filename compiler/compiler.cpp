@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <sstream>
 
 #include "../instructions/keywords.h"
@@ -858,9 +859,26 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
             {
             case 2:
             {
-                parse(src1, parse_int, std::int32_t);
-                instruction = ::construct32(::itype::LDI, 0, dest->second.offset, src1);
-                break;
+                if (instr.src1[0] == '\'')
+                {
+                    if (instr.src1.back() != '\'' or instr.src1.length() == 1)
+                    {
+                        compiling_error("Unclosed character literal");
+                    }
+                    if (instr.src1.length() > 6)
+                    {
+                        compiling_error("Invalid code point for UTF-8");
+                    }
+                    std::uint32_t imm = std::accumulate(instr.src1.begin() + 1, instr.src1.end() - 1, static_cast<std::uint32_t>(0), [](std::uint32_t cp, unsigned char c) { return cp << CHAR_BIT * sizeof(c) | c; });
+                    instruction = ::construct32(::itype::LDI, 0, dest->second.offset, imm);
+                    break;
+                }
+                else
+                {
+                    parse(src1, parse_int, std::int32_t);
+                    instruction = ::construct32(::itype::LDI, 0, dest->second.offset, src1);
+                    break;
+                }
             }
             case 3:
             {
