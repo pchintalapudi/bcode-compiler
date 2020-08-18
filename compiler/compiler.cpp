@@ -865,11 +865,70 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                     {
                         compiling_error("Unclosed character literal");
                     }
-                    if (instr.src1.length() > 6)
+                    std::uint32_t imm = 0;
+                    unsigned byte_count = 0;
+                    for (std::size_t i = 1; i < instr.src1.length() - 1; i++)
                     {
-                        compiling_error("Invalid code point for UTF-8");
+                        if (byte_count == 4)
+                        {
+                            compiling_error("Character literal too large");
+                        }
+                        unsigned char c = instr.src1[i];
+                        if (c == '\\')
+                        {
+                            i++;
+                            if (i == instr.src1.length() - 1) {
+                                compiling_error("Closing character literal ' was escaped");
+                            }
+                            switch (instr.src1[i])
+                            {
+                            case 'a':
+                                c = '\a';
+                                break;
+                            case 'b':
+                                c = '\b';
+                                break;
+                            case 'e':
+                                c = '\e';
+                                break;
+                            case 'f':
+                                c = '\f';
+                                break;
+                            case 'n':
+                                c = '\n';
+                                break;
+                            case 'r':
+                                c = '\r';
+                                break;
+                            case 's':
+                                c = ' ';
+                                break;
+                            case 't':
+                                c = '\t';
+                                break;
+                            case 'v':
+                                c = '\v';
+                                break;
+                            case '\\':
+                                c = '\\';
+                                break;
+                            case '\'':
+                                c = '\'';
+                                break;
+                            case '"':
+                                c = '"';
+                                break;
+                            case '\?':
+                                c = '\?';
+                                break;
+                            default:
+                                compiling_error("Invalid escape sequence \\" << c << " in character literal");
+                            }
+                        }
+                        imm <<= CHAR_BIT * sizeof(unsigned char);
+                        imm |= static_cast<unsigned char>(instr.src1[i]);
+                        byte_count++;
                     }
-                    std::uint32_t imm = std::accumulate(instr.src1.begin() + 1, instr.src1.end() - 1, static_cast<std::uint32_t>(0), [](std::uint32_t cp, unsigned char c) { return cp << CHAR_BIT * sizeof(c) | c; });
                     instruction = ::construct32(::itype::LDI, 0, dest->second.offset, imm);
                     break;
                 }
