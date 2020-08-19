@@ -2,6 +2,7 @@
 #include <queue>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
 
 #include "parser/parser.h"
 #include "interpreter/translator.h"
@@ -15,11 +16,15 @@ int compile_standalone(std::string class_file, std::string build_path)
         std::cerr << "File '" << class_file << "' could not be found!" << std::endl;
         return 1;
     }
-    if (std::holds_alternative<std::string>(*cls))
+    if (std::holds_alternative<std::vector<std::string>>(*cls))
     {
-        std::cerr << "Tried to parse '" << class_file << "', but got error:\n"
-                  << std::get<std::string>(*cls) << std::endl;
-        return 1;
+        auto errors = std::get<std::vector<std::string>>(*cls);
+        std::cerr << "Tried to parse '" << class_file << "', but got error" << (errors.size() > 1 ? "s" : "") << ":\n";
+        for (auto &error : errors)
+        {
+            std::cerr << error << "\n";
+        }
+        return errors.size();
     }
     if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
     {
@@ -49,14 +54,20 @@ int compile_with_imports(std::string seed, std::string build_path)
             std::cerr << "File '" << class_file << "' could not be found!" << std::endl;
             continue;
         }
-        if (std::holds_alternative<std::string>(*cls))
+        if (std::holds_alternative<std::vector<std::string>>(*cls))
         {
-            std::cerr << "Tried to parse '" << class_file << "', but got error:\n"
-                      << std::get<std::string>(*cls) << std::endl;
+            auto errors = std::get<std::vector<std::string>>(*cls);
+            std::cerr << "Tried to parse '" << class_file << "', but got error" << (errors.size() > 1 ? "s" : "") << ":\n";
+            for (auto &error : errors)
+            {
+                std::cerr << error << "\n";
+            }
             continue;
         }
-        for (auto& imp : std::get<oops_bcode_compiler::parsing::cls>(*cls).imports){
-            if (compiling.find(imp) == compiling.end()) {
+        for (auto &imp : std::get<oops_bcode_compiler::parsing::cls>(*cls).imports)
+        {
+            if (compiling.find(imp) == compiling.end())
+            {
                 to_compile.push(imp);
                 compiling.insert(imp);
             }
@@ -91,12 +102,16 @@ int main(int argc, char **argv)
     }
     std::string build_path;
     auto out_dir = args.find("--build-path");
-    if (out_dir == args.end()) {
+    if (out_dir == args.end())
+    {
         out_dir = args.find("-b");
     }
-    if (out_dir == args.end() or out_dir->second == argc - 1) {
+    if (out_dir == args.end() or out_dir->second == argc - 1)
+    {
         build_path = oops_bcode_compiler::platform::get_working_path();
-    } else {
+    }
+    else
+    {
         build_path = argv[out_dir->second + 1];
     }
 

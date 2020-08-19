@@ -19,7 +19,7 @@ namespace
     std::vector<token> lex(char *current, char *end)
     {
         std::vector<token> tokens;
-        std::size_t line_number, column_number;
+        std::size_t line_number = 0, column_number = 0;
         token next = {"", line_number, column_number};
         bool skip = false;
         while (current < end)
@@ -42,6 +42,11 @@ namespace
                 }
                 else if (c == ';')
                 {
+                    if (!next.token.empty())
+                    {
+                        tokens.push_back(std::move(next));
+                        next.token.clear();
+                    }
                     skip = true;
                 }
                 else
@@ -75,6 +80,12 @@ namespace
     return error_builder.str()
         if (!line.empty())
         {
+            // std::cout << "Line " << line[0].line_number;
+            // auto tidx = 0;
+            // for (auto token : line)
+            // {
+            //     std::cout << " Token " << tidx++ << " Column " << token.column_number << " Value " << token.token << "\n";
+            // }
             std::transform(line[0].token.begin(), line[0].token.end(), line[0].token.begin(), [](unsigned char c) { return std::toupper(c); });
             auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(line[0].token);
             if (keyword == oops_bcode_compiler::keywords::string_to_keywords.end())
@@ -95,16 +106,16 @@ namespace
         {                                                                                                                             \
             parse_error("Expected " << line[0].token << " to not be inside a procedure", line[0].line_number, line[0].column_number); \
         }
-#define require_min_args(count)                                                                                                                                                                                \
-    if (line.size() < count)                                                                                                                                                                                   \
-    {                                                                                                                                                                                                          \
-        parse_error("Too few arguments for keyword " << line[0].token << " (" << line.size() << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
+#define require_min_args(count)                                                                                                                                                                                    \
+    if (line.size() < count)                                                                                                                                                                                       \
+    {                                                                                                                                                                                                              \
+        parse_error("Too few arguments for keyword " << line[0].token << " (" << line.size() - 1 << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
     }
-#define require_args(count)                                                                                                                                                                                     \
-    require_min_args(count);                                                                                                                                                                                    \
-    if (line.size() > count)                                                                                                                                                                                    \
-    {                                                                                                                                                                                                           \
-        parse_error("Too many arguments for keyword " << line[0].token << " (" << line.size() << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
+#define require_args(count)                                                                                                                                                                                         \
+    require_min_args(count);                                                                                                                                                                                        \
+    if (line.size() > count)                                                                                                                                                                                        \
+    {                                                                                                                                                                                                               \
+        parse_error("Too many arguments for keyword " << line[0].token << " (" << line.size() - 1 << ", expected " << count - 1 << ")", line[0].line_number, line.back().column_number + line.back().token.size()); \
     }
                 check_out_proc(CLZ)
                 {
@@ -136,6 +147,7 @@ namespace
                     }
                     cls.implement_count++;
                     cls.imports.push_back(std::move(line[1].token));
+                    break;
                 }
                 check_out_proc(IMP)
                 {
@@ -274,10 +286,11 @@ namespace
             case kw::NEG:
             case kw::IOF:
             case kw::VINV:
+            case kw::ANEW:
                 check_in_proc(IINV)
                 {
                     require_args(4);
-                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), std::move(line[1].token), std::move(line[0].token), keyword->second});
+                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), std::move(line[2].token), std::move(line[3].token), keyword->second});
                     break;
                 }
             case kw::SINV:
@@ -291,11 +304,10 @@ namespace
             case kw::CST:
             case kw::ALEN:
             case kw::VNEW:
-            case kw::ANEW:
                 check_in_proc(DEF)
                 {
                     require_args(3);
-                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), std::move(line[1].token), "", keyword->second});
+                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), std::move(line[2].token), "", keyword->second});
                     break;
                 }
             case kw::PASS:
@@ -304,12 +316,23 @@ namespace
                 check_in_proc(BU)
                 {
                     require_args(2);
-                    cls.self_methods.back().instructions.push_back({std::move(line[2].token), "", "", keyword->second});
+                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), "", "", keyword->second});
+                    break;
+                }
+                check_in_proc(NOP)
+                {
+                    require_args(1);
+                    cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
+                    break;
+                }
+                check_in_proc(EPROC)
+                {
+                    require_args(1);
+                    in_proc = false;
                     break;
                 }
             case kw::BCMP:
             case kw::BADR:
-            case kw::NOP:
             case kw::EXC:
                 parse_error(line[0].token << " is a keyword not implemented in the parser", line[0].line_number, line[0].column_number);
             }

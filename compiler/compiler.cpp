@@ -580,9 +580,7 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
         case keywords::keyword::IMP:
         case keywords::keyword::IVAR:
         case keywords::keyword::SVAR:
-        case keywords::keyword::ARG:
         case keywords::keyword::PROC:
-        case keywords::keyword::SPROC:
         case keywords::keyword::EPROC:
         case keywords::keyword::EXT:
         case keywords::keyword::IMPL:
