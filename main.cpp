@@ -26,10 +26,12 @@ int compile_standalone(std::string class_file, std::string build_path)
         }
         return errors.size();
     }
-    if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
+    if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path); !failure.empty())
     {
-        std::cerr << "Failed to fully write '" << class_file << "' due to error:\n"
-                  << *failure << std::endl;
+        std::cerr << "Failed to fully write '" << class_file << "' due to errors:\n";
+        for (auto& fail : failure) {
+            std::cerr << fail << "\n";
+        }
         return 1;
     }
     std::cout << "Successfully compiled '" << class_file << "'!" << std::endl;
@@ -72,10 +74,12 @@ int compile_with_imports(std::string seed, std::string build_path)
                 compiling.insert(imp);
             }
         }
-        if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path))
+        if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path); !failure.empty())
         {
-            std::cerr << "Failed to fully write '" << class_file << "' due to error:\n"
-                      << *failure << std::endl;
+            std::cerr << "Failed to fully write '" << class_file << "' due to errors:\n";
+            for (auto& fail : failure) {
+                std::cout << fail << "\n";
+            }
             continue;
         }
         successes.push_back(class_file);

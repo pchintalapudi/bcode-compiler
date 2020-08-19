@@ -20,6 +20,7 @@ namespace
     };
     enum class itype : unsigned char
     {
+#pragma region DO NOT UNFOLD ME
         //Done
         NOP,
         IADD,
@@ -224,6 +225,7 @@ namespace
         DRET,
         VRET,
         EXC
+#pragma endregion
     };
 
     std::uint64_t construct3(itype type, std::uint8_t flags, std::uint16_t dest, std::uint16_t src1, std::uint16_t src2)
@@ -875,7 +877,8 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                         if (c == '\\')
                         {
                             i++;
-                            if (i == instr.src1.length() - 1) {
+                            if (i == instr.src1.length() - 1)
+                            {
                                 compiling_error("Closing character literal ' was escaped");
                             }
                             switch (instr.src1[i])

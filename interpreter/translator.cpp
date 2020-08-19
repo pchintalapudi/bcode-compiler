@@ -41,8 +41,9 @@ namespace
     }
 } // namespace
 
-std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls, std::string build_path)
+std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_compiler::parsing::cls cls, std::string build_path)
 {
+    std::vector<std::string> errors;
     std::stringstream error_builder;
     std::uint64_t classes_offset, methods_offset, statics_offset, instances_offset, bytecode_offset, string_offset;
     classes_offset = 6 * sizeof(std::uint64_t);
@@ -60,7 +61,7 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
         }
         else
         {
-            return std::get<std::string>(maybe_method);
+            errors.push_back(std::get<std::string>(maybe_method));
         }
     }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
@@ -84,8 +85,9 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
             if (class_indexes.find(*imp) != class_indexes.end())
             {
                 error_builder << "Import " << *imp << " was imported twice!";
-                platform::close_file_mapping(*maybe_cls);
-                return error_builder.str();
+                errors.push_back(error_builder.str());
+                error_builder.clear();
+                continue;
             }
             class_indexes[*imp] = imp - cls.imports.begin();
             utils::pun_write(base_head, current_string_offset);
@@ -108,8 +110,9 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
             else
             {
                 error_builder << "Unable to find method import class" << method->host_name << "!";
-                platform::close_file_mapping(*maybe_cls);
-                return error_builder.str();
+                errors.push_back(error_builder.str());
+                error_builder.clear();
+                continue;
             }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
@@ -129,8 +132,9 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
             else
             {
                 error_builder << "Unable to find static variable import " << svar->host_name << "!";
-                platform::close_file_mapping(*maybe_cls);
-                return error_builder.str();
+                errors.push_back(error_builder.str());
+                error_builder.clear();
+                continue;
             }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
@@ -150,8 +154,9 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
             else
             {
                 error_builder << "Unable to find instance variable import " << ivar->host_name << "!";
-                platform::close_file_mapping(*maybe_cls);
-                return error_builder.str();
+                errors.push_back(error_builder.str());
+                error_builder.clear();
+                continue;
             }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
@@ -174,7 +179,9 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
                     if (idx == class_indexes.end())
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
@@ -185,13 +192,17 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
                     if (cidx == class_indexes.end())
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     auto idx = method_indexes.find({thunk.name, cidx->second});
                     if (idx == method_indexes.end())
                     {
                         error_builder << "Unable to find method name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
@@ -202,13 +213,17 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
                     if (cidx == class_indexes.end())
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     auto idx = instance_indexes.find({thunk.name, cidx->second});
                     if (idx == instance_indexes.end())
                     {
                         error_builder << "Unable to find instance variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
@@ -219,13 +234,17 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
                     if (cidx == class_indexes.end())
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     auto idx = method_indexes.find({thunk.name, cidx->second});
                     if (idx == method_indexes.end())
                     {
                         error_builder << "Unable to find static variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
-                        return error_builder.str();
+                        errors.push_back(error_builder.str());
+                        error_builder.clear();
+                        continue;
                     }
                     method.instructions[thunk.instruction_idx] = dethunk(thunk, method.instructions[thunk.instruction_idx], idx->second);
                     break;
@@ -282,5 +301,5 @@ std::optional<std::string> oops_bcode_compiler::transformer::write(oops_bcode_co
         platform::close_file_mapping(*maybe_cls);
         return {};
     }
-    return "Unable to open file mapping!";
+    return {"Unable to open file mapping!"};
 }
