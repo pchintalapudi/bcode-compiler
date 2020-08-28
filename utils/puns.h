@@ -8,7 +8,7 @@ namespace oops_bcode_compiler
     namespace utils
     {
         template <typename primitive>
-        std::enable_if_t<std::is_trivially_copyable_v<primitive> and std::is_default_constructible_v<primitive>, primitive> pun_read(void *from)
+        std::enable_if_t<std::is_trivially_copyable_v<primitive> and std::is_default_constructible_v<primitive>, primitive> pun_read(const void *from)
         {
             primitive ret;
             std::memcpy(&ret, from, sizeof(primitive));

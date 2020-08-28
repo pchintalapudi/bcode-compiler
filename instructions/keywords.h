@@ -84,7 +84,6 @@ namespace oops_bcode_compiler
             RET,
             //Done
             DEF,
-            PASS,
             LBL,
             //Skip
             EXC,
@@ -173,7 +172,6 @@ namespace oops_bcode_compiler
             stringize(RET);
             stringize(EXC);
             stringize(DEF);
-            stringize(PASS);
             stringize(LBL);
             stringize(IMP);
             stringize(IVAR);

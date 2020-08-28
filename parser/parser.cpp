@@ -124,7 +124,7 @@ namespace
                     {
                         parse_error("Class name must be the first import!", line[0].line_number, line[0].column_number);
                     }
-                    cls.imports.push_back(std::move(line[1].token));
+                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(EXT)
@@ -135,7 +135,7 @@ namespace
                         parse_error("Superclass must be the second import!", line[0].line_number, line[0].column_number);
                     }
                     cls.implement_count++;
-                    cls.imports.push_back(std::move(line[1].token));
+                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(IMPL)
@@ -146,7 +146,7 @@ namespace
                         parse_error("All superinterfaces must come before any other imports!", line[0].line_number, line[0].column_number);
                     }
                     cls.implement_count++;
-                    cls.imports.push_back(std::move(line[1].token));
+                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(IMP)
@@ -161,25 +161,25 @@ namespace
                     {
                     case oops_bcode_compiler::keywords::keyword::CLZ:
                     {
-                        cls.imports.push_back(std::move(line[2].token));
+                        cls.imports.push_back({std::move(line[2].token), line[2].line_number, line[2].column_number});
                         break;
                     }
                     case oops_bcode_compiler::keywords::keyword::PROC:
                     {
                         std::size_t split_idx = line[2].token.find_last_of('.');
-                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1), line[2].line_number, line[2].column_number});
                         break;
                     }
                     case oops_bcode_compiler::keywords::keyword::IVAR:
                     {
                         std::size_t split_idx = line[2].token.find_last_of('.');
-                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1), line[2].line_number, line[2].column_number});
                         break;
                     }
                     case oops_bcode_compiler::keywords::keyword::SVAR:
                     {
                         std::size_t split_idx = line[2].token.find_last_of('.');
-                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1)});
+                        cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1), line[2].line_number, line[2].column_number});
                         break;
                     }
                     default:
@@ -190,15 +190,15 @@ namespace
                 check_out_proc(IVAR)
                 {
                     require_args(3);
-                    cls.instance_variables.push_back({cls.imports[6], line[2].token});
-                    cls.self_instances.push_back({std::move(line[1].token), std::move(line[2].token)});
+                    cls.instance_variables.push_back({cls.imports[6], line[2].token, line[2].line_number, line[2].column_number});
+                    cls.self_instances.push_back({std::move(line[1].token), std::move(line[2].token), line[2].line_number, line[2].column_number});
                     break;
                 }
                 check_out_proc(SVAR)
                 {
                     require_args(3);
-                    cls.static_variables.push_back({cls.imports[6], line[2].token});
-                    cls.self_statics.push_back({std::move(line[1].token), std::move(line[2].token)});
+                    cls.static_variables.push_back({cls.imports[6], line[2].token, line[2].line_number, line[2].column_number});
+                    cls.self_statics.push_back({std::move(line[1].token), std::move(line[2].token), line[2].line_number, line[2].column_number});
                     break;
                 }
                 check_out_proc(PROC)
@@ -208,12 +208,12 @@ namespace
                     if (line[1].token == "static")
                     {
                         require_min_args(4);
-                        cls.self_methods.push_back({line[3].token, line[2].token, {}, {}, true});
+                        cls.self_methods.push_back({line[3].token, line[2].token, {}, {}, line[3].line_number, line[3].column_number, true});
                         begin = 4;
                     }
                     else
                     {
-                        cls.self_methods.push_back({line[2].token, line[1].token, {}, {}, false});
+                        cls.self_methods.push_back({line[2].token, line[1].token, {}, {}, line[2].line_number, line[2].column_number, false});
                         begin = 3;
                     }
                     in_proc = true;
@@ -226,7 +226,7 @@ namespace
                         cls.self_methods.back().parameters.reserve((line.size() - begin) / 2);
                         do
                         {
-                            cls.self_methods.back().parameters.push_back({std::move(line[begin].token), std::move(line[begin + 1].token)});
+                            cls.self_methods.back().parameters.push_back({std::move(line[begin].token), std::move(line[begin + 1].token), line[begin].line_number, line[begin].column_number});
                             if (auto &argname = cls.self_methods.back().parameters.back().name; argname.back() == ',')
                             {
                                 argname.pop_back();
@@ -285,15 +285,12 @@ namespace
             case kw::ASR:
             case kw::NEG:
             case kw::IOF:
-            case kw::VINV:
-            case kw::ANEW:
-                check_in_proc(IINV)
+                check_in_proc(ANEW)
                 {
                     require_args(4);
-                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), std::move(line[2].token), std::move(line[3].token), keyword->second});
+                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token), std::move(line[2].token), std::move(line[3].token)}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
-            case kw::SINV:
             case kw::CSTLD:
             case kw::CSTSR:
             case kw::SSTLD:
@@ -307,22 +304,38 @@ namespace
                 check_in_proc(DEF)
                 {
                     require_args(3);
-                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), std::move(line[2].token), "", keyword->second});
+                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token), std::move(line[2].token)}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
-            case kw::PASS:
+            case kw::VINV:
+                check_in_proc(IINV)
+                {
+                    require_min_args(4);
+                    std::vector<std::string> args;
+                    std::transform(line.begin() + 1, line.end(), std::back_inserter(args), [](::token &tkn) { return tkn.token; });
+                    cls.self_methods.back().instructions.push_back({std::move(args), line[0].line_number, line[0].column_number, keyword->second});
+                    break;
+                }
+                check_in_proc(SINV)
+                {
+                    require_min_args(3);
+                    std::vector<std::string> args;
+                    std::transform(line.begin() + 1, line.end(), std::back_inserter(args), [](::token &tkn) { return tkn.token; });
+                    cls.self_methods.back().instructions.push_back({std::move(args), line[0].line_number, line[0].column_number, keyword->second});
+                    break;
+                }
             case kw::RET:
             case kw::LBL:
                 check_in_proc(BU)
                 {
                     require_args(2);
-                    cls.self_methods.back().instructions.push_back({std::move(line[1].token), "", "", keyword->second});
+                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token)}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
                 check_in_proc(NOP)
                 {
                     require_args(1);
-                    cls.self_methods.back().instructions.push_back({"", "", "", keyword->second});
+                    cls.self_methods.back().instructions.push_back({{}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
                 check_in_proc(EPROC)

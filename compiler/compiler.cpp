@@ -441,10 +441,11 @@ namespace
         auto parsed = parse_int(str);
         if (std::holds_alternative<std::int32_t>(parsed))
         {
-            if (static_cast<std::uint32_t>(std::get<std::int32_t>(parsed)) >> 24)
+            if (static_cast<std::uint32_t>(std::abs(std::get<std::int32_t>(parsed))) >> 23)
             {
                 return "'" + str + "' is too large to be a 24-bit integer";
             }
+            return static_cast<std::int32_t>(static_cast<std::uint32_t>(std::get<std::int32_t>(parsed)) << (32 - 24) >> (32 - 24));
         }
         return parsed;
     }
@@ -453,7 +454,7 @@ namespace
         auto parsed = parse_int(str);
         if (std::holds_alternative<std::int32_t>(parsed))
         {
-            if (static_cast<std::uint32_t>(std::get<std::int32_t>(parsed)) >> 16)
+            if (static_cast<std::uint32_t>(std::abs(std::get<std::int32_t>(parsed))) >> 15)
             {
                 return "'" + str + "' is too large to be a 16-bit integer";
             }
@@ -468,420 +469,181 @@ namespace
     }
 } // namespace
 
-std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const oops_bcode_compiler::parsing::cls::procedure &proc, std::stringstream &error_builder)
+constexpr static std::uint8_t static_method_type = 5, virtual_method_type = 4;
+
+std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::compile(oops_bcode_compiler::parsing::cls::procedure &proc)
 {
-    static const std::unordered_map<std::string, std::uint8_t> sizer = {{"int", sizeof(std::int32_t) / sizeof(std::uint32_t)}, {"long", sizeof(std::int64_t) / sizeof(std::uint32_t)}, {"float", sizeof(float) / sizeof(std::uint32_t)}, {"double", sizeof(double) / sizeof(std::uint32_t)}};
-    static const std::unordered_map<std::string, std::uint8_t> typer = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
+    static const std::unordered_map<std::string, std::uint8_t> type_map = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}, {"ref", 6}};
+    std::vector<std::string> errors;
+#define compile_error(error, line, col)                                  \
+    std::stringstream error_builder;                                     \
+    error_builder << error << " at line " << line << ", column " << col; \
+    errors.push_back(error_builder.str())
     method mtd;
-    mtd.stack_size = 0;
-    mtd.size = 0;
-    std::unordered_map<std::string, ::var> local_variables;
-    std::unordered_map<std::string, std::uint16_t> labels;
-    for (auto arg : proc.parameters)
-    {
-        if (auto type = typer.find(arg.host_name); type != typer.end())
-        {
-            mtd.arg_types.push_back(type->second);
-            local_variables[arg.name] = {mtd.stack_size, type->second};
-        }
-        else
-        {
-            mtd.handle_map.push_back(mtd.stack_size);
-            mtd.arg_types.push_back(6);
-            local_variables[arg.name] = {mtd.stack_size, 6};
-        }
-        mtd.stack_size += sizeof(std::uint64_t) / sizeof(std::uint32_t);
-    }
-    auto rtype = typer.find(proc.return_type_name);
-    mtd.return_type = rtype != typer.end() ? rtype->second : 6;
-    mtd.method_type = proc.is_static ? 4 : 5;
     mtd.name = proc.name;
-    std::uint16_t iidx = 0;
-    unsigned arg_counter = 0;
-    std::vector<std::tuple<std::uint8_t, std::uint8_t, std::string>> defines;
-    for (std::size_t i = 0; i < proc.instructions.size(); i++)
+    mtd.method_type = proc.is_static ? static_method_type : virtual_method_type;
+    if (auto type = type_map.find(proc.return_type_name); type != type_map.end())
     {
-        auto &instr = proc.instructions[i];
-#define compiling_error(error)                                                                                                                                                                                                                                      \
-    error_builder << "Error while compiling procedure " << proc.name << ": " << error << " for instruction " << i << " (" << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " " << instr.dest << " " << instr.src1 << " " << instr.src2 << ")"; \
-    return error_builder.str()
-#define lookup_variable(var)                                 \
-    auto var = local_variables.find(instr.var);              \
-    if (var == local_variables.end())                        \
-    {                                                        \
-        compiling_error("Undefined variable " << instr.var); \
+        mtd.return_type = type->second;
     }
-#define require_type(var, idx)                                                                          \
-    if (var->second.type != idx)                                                                        \
-    {                                                                                                   \
-        compiling_error("Wanted " #var " to have type " #idx ", but was instead " << var->second.type); \
+    else
+    {
+        compile_error("Invalid return type " << proc.return_type_name, proc.line_number, proc.column_number);
     }
-        if (instr.itype == keywords::keyword::PASS)
+    std::unordered_map<std::string, var> local_variables;
+    for (auto &param : proc.parameters)
+    {
+        if (local_variables.find(param.name) != local_variables.end())
         {
-            arg_counter++;
+            compile_error("Local variable " << param.name << " was redefined with type " << param.host_name, param.line_number, param.column_number);
             continue;
         }
-        iidx += (arg_counter + 3) / 4;
-        switch (instr.itype)
+        if (auto type = type_map.find(param.host_name); type != type_map.end())
         {
-        case keywords::keyword::LBL:
-            labels[instr.src1] = iidx;
-            continue;
-        case keywords::keyword::DEF:
-        {
-            auto size = sizer.find(instr.dest);
-            if (size != sizer.end())
-            {
-                defines.push_back({size->second, typer.find(instr.dest)->second, instr.src1});
-            }
-            else
-            {
-                defines.push_back({sizeof(char *) / sizeof(std::int32_t), 6, instr.src1});
-            }
-            local_variables[instr.dest] = {0, std::get<1>(defines.back())};
-            continue;
-        }
-        case keywords::keyword::LI:
-        {
-            lookup_variable(dest);
-            switch (dest->second.type)
+            local_variables[param.name] = {mtd.stack_size, type->second};
+            mtd.arg_types.push_back(type->second);
+            switch (type->second)
             {
             case 2:
+                mtd.stack_size += sizeof(std::int32_t) / sizeof(std::int32_t);
+                break;
+            case 3:
+                mtd.stack_size += sizeof(std::int64_t) / sizeof(std::int32_t);
+                break;
             case 4:
+                mtd.stack_size += sizeof(float) / sizeof(std::int32_t);
+                break;
+            case 5:
+                mtd.stack_size += sizeof(double) / sizeof(std::int32_t);
+                break;
             case 6:
             {
-                iidx++;
-                break;
+                compile_error("Method argument " << param.name << " must have real type, not ref", param.host_name, param.line_number);
+                continue;
             }
-            case 3:
-            {
-                auto parsed = ::parse_long(instr.src1);
-                if (std::holds_alternative<std::int64_t>(parsed))
-                {
-                    iidx += 1 + ((std::get<std::int64_t>(parsed) << CHAR_BIT * (sizeof(std::uint16_t) * 2 + sizeof(std::uint8_t))) == 0);
-                }
-                else
-                {
-                    compiling_error(std::get<std::string>(parsed));
-                }
-                break;
-            }
-            case 5:
-            {
-                auto parsed = ::parse_double(instr.src1);
-                if (std::holds_alternative<std::string>(parsed))
-                {
-                    compiling_error(std::get<std::string>(parsed));
-                }
-                iidx += 1 + ((utils::pun_reinterpret<std::uint64_t>(std::get<double>(parsed)) << CHAR_BIT * (sizeof(std::uint16_t) * 2 + sizeof(std::uint8_t))) == 0);
-                break;
-            }
-            }
-            continue;
-        }
-        case keywords::keyword::IMP:
-        case keywords::keyword::IVAR:
-        case keywords::keyword::SVAR:
-        case keywords::keyword::PROC:
-        case keywords::keyword::EPROC:
-        case keywords::keyword::EXT:
-        case keywords::keyword::IMPL:
-        case keywords::keyword::CLZ:
-            compiling_error("Invalid keyword in procedure");
-        default:
-            break;
-        }
-        iidx++;
-    }
-    std::sort(defines.begin(), defines.end());
-    std::for_each(defines.rbegin(), defines.rend(), [&mtd, &local_variables](decltype(defines)::value_type tup) {
-        local_variables[std::get<2>(tup)] = {mtd.stack_size, std::get<1>(tup)};
-        if (std::get<1>(tup) == 6)
-        {
-            mtd.handle_map.push_back(mtd.stack_size);
-        }
-        mtd.stack_size += std::get<0>(tup);
-    });
-    std::uint64_t arg_builder = 0;
-    for (std::size_t i = 0; i < proc.instructions.size(); i++)
-    {
-        const auto &instr = proc.instructions[i];
-        if (instr.itype != keywords::keyword::PASS)
-        {
-            if (arg_counter % 4 != 0)
-            {
-                mtd.instructions.push_back(arg_builder >> CHAR_BIT * sizeof(std::uint16_t) * (arg_counter % 4));
-                arg_builder = 0;
-                arg_counter = 0;
             }
         }
         else
         {
-            arg_builder >>= CHAR_BIT * sizeof(std::uint16_t);
-            lookup_variable(dest);
-            arg_builder |= static_cast<std::uint64_t>(dest->second.offset) << CHAR_BIT * (sizeof(std::uint64_t) - sizeof(std::uint16_t));
-            if (arg_counter % 4 == 3)
-            {
-                mtd.instructions.push_back(arg_builder);
-                arg_builder = 0;
-            }
-            arg_counter++;
-            continue;
+            mtd.arg_types.push_back(6);
+            mtd.handle_map.push_back(mtd.stack_size);
+            local_variables[param.name] = {mtd.stack_size, 6};
+            mtd.stack_size += sizeof(char *) / sizeof(std::int32_t);
         }
-        std::uint64_t instruction;
+    }
+    std::unordered_map<std::string, std::uint16_t> labels;
+#pragma region
+
+#define lookup_variable(name, offset)                                                                                 \
+    auto name##_it = local_variables.find(instr.operands[offset]);                                                    \
+    if (name##_it == local_variables.end())                                                                           \
+    {                                                                                                                 \
+        compile_error("Undefined local variable " << instr.operands[offset], instr.line_number, instr.column_number); \
+        continue;                                                                                                     \
+    }                                                                                                                 \
+    auto name = name##_it->second
+#pragma endregion
+    unsigned instr_count;
+    typedef keywords::keyword ktype;
+    for (auto &instr : proc.instructions)
+    {
         switch (instr.itype)
         {
-#define typecheck(var1, var2)                                                                                                          \
-    if (var1->second.type != var2->second.type)                                                                                        \
-    {                                                                                                                                  \
-        compiling_error("Types of " #var1 " and " #var2 " do not match (" << var1->second.type << " vs " << var2->second.type << ")"); \
-    }
-#define ctype(type, prefix, ktype)                                                                                            \
-    case type:                                                                                                                \
-    {                                                                                                                         \
-        instruction = ::construct3(::itype::prefix##ktype, 0, dest->second.offset, src1->second.offset, src2->second.offset); \
-        break;                                                                                                                \
-    }
-#define c24type(type, prefix, ktype)                                                                         \
-    case type:                                                                                               \
-    {                                                                                                        \
-        instruction = ::construct24(::itype::prefix##ktype, dest->second.offset, src1->second.offset, src2); \
-        break;                                                                                               \
-    }
-#define basic_op(ktype, tswitch)                                       \
-    case keywords::keyword::ktype:                                     \
-    {                                                                  \
-        lookup_variable(src1);                                         \
-        lookup_variable(src2);                                         \
-        lookup_variable(dest);                                         \
-        typecheck(src1, src2);                                         \
-        typecheck(src1, dest);                                         \
-        switch (dest->second.type)                                     \
-        {                                                              \
-            tswitch;                                                   \
-        default:                                                       \
-            compiling_error("Unsupported type " << dest->second.type); \
-        }                                                              \
-        break;                                                         \
-    }
-#define int_op(ktype) basic_op(ktype, ctype(2, I, ktype); ctype(3, L, ktype))
-#define prim_op(ktype) basic_op(ktype, ctype(2, I, ktype); ctype(3, L, ktype); ctype(4, F, ktype); ctype(5, D, ktype))
-            prim_op(ADD);
-            prim_op(SUB);
-            prim_op(MUL);
-            prim_op(DIV);
-            int_op(DIVU);
-            int_op(AND);
-            int_op(OR);
-            int_op(XOR);
-            int_op(SLL);
-            int_op(SRL);
-            int_op(SRA);
-#pragma region
-#define parse(var, pfunc, type)                         \
-    auto parsed = pfunc(instr.var);                     \
-    if (std::holds_alternative<std::string>(parsed))    \
-    {                                                   \
-        compiling_error(std::get<std::string>(parsed)); \
-    }                                                   \
-    auto var = std::get<type>(parsed);
-#define basic_imm_op(ktype, tswitch)                                   \
-    case keywords::keyword::ktype:                                     \
-    {                                                                  \
-        lookup_variable(src1);                                         \
-        lookup_variable(dest);                                         \
-        typecheck(src1, dest);                                         \
-        parse(src2, to24, std::int32_t);                               \
-        switch (dest->second.type)                                     \
-        {                                                              \
-            tswitch;                                                   \
-        default:                                                       \
-            compiling_error("Unsupported type " << dest->second.type); \
-        }                                                              \
-        break;                                                         \
-    }
-#pragma endregion
-#define int_imm_op(ktype) basic_imm_op(ktype, c24type(2, I, ktype); c24type(3, L, ktype))
-#define prim_imm_op(ktype) basic_imm_op(ktype, c24type(2, I, ktype); c24type(3, L, ktype); c24type(4, F, ktype); c24type(5, D, ktype))
-            prim_imm_op(ADDI);
-            prim_imm_op(SUBI);
-            prim_imm_op(MULI);
-            prim_imm_op(DIVI);
-            int_imm_op(DIVUI);
-            int_imm_op(ANDI);
-            int_imm_op(ORI);
-            int_imm_op(XORI);
-            int_imm_op(SLLI);
-            int_imm_op(SRLI);
-            int_imm_op(SRAI);
-        case keywords::keyword::ALEN:
+        case ktype::DEF:
         {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            instruction = ::construct3(::itype::IVLLD, 0, dest->second.offset, src1->second.offset, 0);
-            break;
-        }
-        case keywords::keyword::ANEW:
-        {
-            lookup_variable(src2);
-            lookup_variable(dest);
-            require_type(src2, 2);
-            require_type(dest, 6);
-            if (auto type = typer.find(instr.src1); type != typer.end())
+            if (local_variables.find(instr.operands[1]) != local_variables.end())
             {
+                compile_error("Redefining local variable " << instr.operands[1], instr.line_number, instr.column_number);
+                continue;
+            }
+            if (auto type = type_map.find(instr.operands[0]); type != type_map.end())
+            {
+                local_variables[instr.operands[1]] = {mtd.stack_size, type->second};
                 switch (type->second)
                 {
                 case 2:
-                    instruction = ::construct3(::itype::IANEW, 0, dest->second.offset, src2->second.offset, 0);
+                    mtd.stack_size += sizeof(std::int32_t) / sizeof(std::int32_t);
                     break;
                 case 3:
-                    instruction = ::construct3(::itype::LANEW, 0, dest->second.offset, src2->second.offset, 0);
+                    mtd.stack_size += sizeof(std::int64_t) / sizeof(std::int32_t);
                     break;
                 case 4:
-                    instruction = ::construct3(::itype::FANEW, 0, dest->second.offset, src2->second.offset, 0);
+                    mtd.stack_size += sizeof(float) / sizeof(std::int32_t);
                     break;
                 case 5:
-                    instruction = ::construct3(::itype::DANEW, 0, dest->second.offset, src2->second.offset, 0);
+                    mtd.stack_size += sizeof(double) / sizeof(std::int32_t);
+                    break;
+                case 6:
+                {
+                    mtd.handle_map.push_back(mtd.stack_size);
+                    mtd.stack_size += sizeof(char *) / sizeof(std::int32_t);
                     break;
                 }
-            }
-            else if (instr.src1 == "char")
-            {
-                instruction = ::construct3(::itype::CANEW, 0, dest->second.offset, src2->second.offset, 0);
-            }
-            else if (instr.src1 == "short")
-            {
-                instruction = ::construct3(::itype::SANEW, 0, dest->second.offset, src2->second.offset, 0);
+                }
             }
             else
             {
-                instruction = ::construct3(::itype::VANEW, 0, dest->second.offset, src2->second.offset, 0);
+                compile_error("Invalid type " << instr.operands[0], instr.line_number, instr.column_number);
             }
             break;
         }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                                                                                                       \
-    case idx:                                                                                                                                                                                                                                                                                                       \
-        instruction = ::construct3(::itype::type##ktype, to_instr->second < static_cast<std::uint16_t>(mtd.instructions.size()), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), src1->second.offset, src2->second.offset); \
-        break
-#define lookup_label                                               \
-    auto to_instr = labels.find(instr.dest);                       \
-    if (to_instr == labels.end())                                  \
-    {                                                              \
-        compiling_error("Undefined label '" << instr.dest << "'"); \
-    }
-#define branch(ktype, tswitch)     \
-    case keywords::keyword::ktype: \
-    {                              \
-        lookup_label;              \
-        lookup_variable(src1);     \
-        lookup_variable(src2);     \
-        typecheck(src1, src2);     \
-        switch (src1->second.type) \
-        {                          \
-            tswitch(ktype);        \
-        }                          \
-        break;                     \
-    }
-#define cmp(ktype)    \
-    cbr(2, I, ktype); \
-    cbr(3, L, ktype); \
-    cbr(4, F, ktype); \
-    cbr(5, D, ktype)
-#define eq(ktype) \
-    cmp(ktype);   \
-    cbr(6, V, ktype)
-            branch(BEQ, eq);
-            branch(BNEQ, eq);
-            branch(BLE, cmp);
-            branch(BLT, cmp);
-            branch(BGE, cmp);
-            branch(BGT, cmp);
-#undef cbr
-
-#define branch_imm(ktype, tswitch)       \
-    case keywords::keyword::ktype:       \
-    {                                    \
-        lookup_label;                    \
-        lookup_variable(src1);           \
-        parse(src2, to16, std::int16_t); \
-        switch (src1->second.type)       \
-        {                                \
-            tswitch(ktype);              \
-        }                                \
-        break;                           \
-    }
-#define cbr(idx, type, ktype)                                                                                                                                                                                                                                                                        \
-    case idx:                                                                                                                                                                                                                                                                                        \
-        instruction = ::construct3(::itype::type##ktype, to_instr->second < static_cast<std::uint16_t>(mtd.instructions.size()), static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), src1->second.offset, src2); \
-        break
-            branch_imm(BEQI, eq);
-            branch_imm(BNEQI, eq);
-            branch_imm(BLEI, cmp);
-            branch_imm(BLTI, cmp);
-            branch_imm(BGEI, cmp);
-            branch_imm(BGTI, cmp);
-        case keywords::keyword::BU:
+        case ktype::LBL:
         {
-            lookup_label;
-            instruction = ::construct3(::itype::BU, to_instr->second < i, static_cast<std::int16_t>(std::abs(static_cast<std::int32_t>(static_cast<std::uint16_t>(mtd.instructions.size())) - to_instr->second)), 0, 0);
-            break;
-        }
-        case keywords::keyword::NEG:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            typecheck(src1, dest);
-            switch (src1->second.type)
+            if (labels.find(instr.operands[0]) != labels.end())
             {
-            case 2:
-                instruction = ::construct3(::itype::INEG, 0, dest->second.offset, src1->second.offset, 0);
-                break;
-            case 3:
-                instruction = ::construct3(::itype::LNEG, 0, dest->second.offset, src1->second.offset, 0);
-                break;
-            case 4:
-                instruction = ::construct3(::itype::FNEG, 0, dest->second.offset, src1->second.offset, 0);
-                break;
-            case 5:
-                instruction = ::construct3(::itype::DNEG, 0, dest->second.offset, src1->second.offset, 0);
-                break;
-            default:
-                compiling_error("Unsupported type " << src1->second.type);
+                compile_error("Redefining label " << instr.operands[0], instr.line_number, instr.column_number);
+                continue;
             }
+            labels[instr.operands[0]] = instr_count;
             break;
         }
-        case keywords::keyword::LI:
+        case ktype::SINV:
         {
-            lookup_variable(dest);
-            switch (dest->second.type)
+            instr_count += 1 + (instr.operands.size() - 1 + sizeof(std::uint64_t) / sizeof(std::uint16_t) - 1) / (sizeof(std::uint64_t) / sizeof(std::uint16_t));
+            break;
+        }
+        case ktype::IINV:
+        case ktype::VINV:
+        {
+            instr_count += 1 + (instr.operands.size() - 2 + sizeof(std::uint64_t) / sizeof(std::uint16_t) - 1) / (sizeof(std::uint64_t) / sizeof(std::uint16_t));
+            break;
+        }
+        case ktype::LI:
+        {
+            lookup_variable(dest, 1);
+            switch (dest.type)
             {
             case 2:
             {
-                if (instr.src1[0] == '\'')
+                if (instr.operands[1][0] == '\'')
                 {
-                    if (instr.src1.back() != '\'' or instr.src1.length() == 1)
+                    if (instr.operands[1].length() < 2 or instr.operands[1].back() != '\'')
                     {
-                        compiling_error("Unclosed character literal");
+                        compile_error("Unclosed character literal", instr.line_number, instr.column_number);
+                        continue;
                     }
                     std::uint32_t imm = 0;
                     unsigned byte_count = 0;
-                    for (std::size_t i = 1; i < instr.src1.length() - 1; i++)
+                    bool fail = false;
+                    for (std::size_t i = 1; i < instr.operands[1].length() - 1; i++)
                     {
                         if (byte_count == 4)
                         {
-                            compiling_error("Character literal too large");
+                            compile_error("Character literal too large", instr.line_number, instr.column_number);
+                            fail = true;
+                            break;
                         }
-                        unsigned char c = instr.src1[i];
+                        unsigned char c = instr.operands[1][i];
                         if (c == '\\')
                         {
                             i++;
-                            if (i == instr.src1.length() - 1)
+                            if (i == instr.operands[1].length() - 1)
                             {
-                                compiling_error("Closing character literal ' was escaped");
+                                compile_error("Closing character literal ' was escaped", instr.line_number, instr.column_number);
+                                fail = true;
+                                break;
                             }
-                            switch (instr.src1[i])
+                            switch (instr.operands[1][i])
                             {
                             case 'a':
                                 c = '\a';
@@ -923,465 +685,778 @@ std::variant<method, std::string> oops_bcode_compiler::compiler::compile(const o
                                 c = '\?';
                                 break;
                             default:
-                                compiling_error("Invalid escape sequence \\" << c << " in character literal");
+                            {
+                                compile_error("Invalid escape sequence \\" << static_cast<char>(c) << " in character literal", instr.line_number, instr.column_number);
+                                fail = true;
+                                break;
+                            }
                             }
                         }
                         imm <<= CHAR_BIT * sizeof(unsigned char);
-                        imm |= static_cast<unsigned char>(instr.src1[i]);
+                        imm |= c;
                         byte_count++;
                     }
-                    instruction = ::construct32(::itype::LDI, 0, dest->second.offset, imm);
+                    if (fail)
+                    {
+                        continue;
+                    }
+                    std::string out;
+                    out.reserve(sizeof(std::int32_t));
+                    utils::pun_write(&out[0], imm);
+                    instr.operands[1] = out;
+                    instr_count++;
                     break;
                 }
                 else
                 {
-                    parse(src1, parse_int, std::int32_t);
-                    instruction = ::construct32(::itype::LDI, 0, dest->second.offset, src1);
-                    break;
+                    auto parsed = ::parse_int(instr.operands[1]);
+                    if (std::holds_alternative<std::string>(parsed))
+                    {
+                        compile_error("Error compiling int immediate: " << std::get<std::string>(parsed), instr.line_number, instr.column_number);
+                        continue;
+                    }
+                    else
+                    {
+                        std::string out;
+                        out.reserve(sizeof(std::int32_t));
+                        utils::pun_write(&out[0], std::get<std::int32_t>(parsed));
+                        instr.operands[1] = out;
+                    }
                 }
+                instr_count++;
+                break;
             }
             case 3:
             {
-                parse(src1, parse_long, std::int64_t);
-                instruction = ::construct40(::itype::LUI, dest->second.offset, src1 >> 24);
-                if ((src1 << (sizeof(std::uint64_t) * CHAR_BIT - 24)) != 0)
+                auto parsed = ::parse_long(instr.operands[1]);
+                if (std::holds_alternative<std::string>(parsed))
                 {
-                    mtd.instructions.push_back(instruction);
-                    instruction = ::construct24(::itype::LADDI, dest->second.offset, dest->second.offset, src1 << (sizeof(std::uint64_t) * CHAR_BIT - 24) >> (sizeof(std::uint64_t) * CHAR_BIT - 24));
+                    compile_error("Error compiling long immediate: " << std::get<std::string>(parsed), instr.line_number, instr.column_number);
+                    continue;
+                }
+                else
+                {
+                    std::string out;
+                    out.reserve(sizeof(std::int64_t));
+                    utils::pun_write(&out[0], std::get<std::int64_t>(parsed));
+                    instr.operands[1] = out;
+                    instr_count += 1 + (std::get<std::int64_t>(parsed) << (sizeof(std::uint64_t) - sizeof(std::uint16_t) - sizeof(std::uint8_t)) * CHAR_BIT);
                 }
                 break;
             }
             case 4:
             {
-                parse(src1, parse_float, float);
-                instruction = ::construct32(::itype::LDI, 0, dest->second.offset, utils::pun_reinterpret<std::int32_t>(src1));
+                auto parsed = ::parse_float(instr.operands[2]);
+                if (std::holds_alternative<std::string>(parsed))
+                {
+                    compile_error("Error compiling float immediate: " << std::get<std::string>(parsed), instr.line_number, instr.column_number);
+                    continue;
+                }
+                else
+                {
+                    std::string out;
+                    out.reserve(sizeof(float));
+                    utils::pun_write(&out[0], std::get<float>(parsed));
+                    instr.operands[1] = out;
+                }
+                instr_count++;
                 break;
             }
             case 5:
             {
-                parse(src1, parse_double, double);
-                std::uint64_t big = utils::pun_reinterpret<std::uint64_t>(src1);
-                instruction = ::construct40(::itype::LUI, dest->second.offset, big >> 24);
-                if (big << (sizeof(std::uint64_t) * CHAR_BIT - 24))
+                auto parsed = ::parse_double(instr.operands[2]);
+                if (std::holds_alternative<std::string>(parsed))
                 {
-                    mtd.instructions.push_back(instruction);
-                    instruction = ::construct24(::itype::LADDI, dest->second.offset, dest->second.offset, big << (sizeof(std::uint64_t) * CHAR_BIT - 24) >> (sizeof(std::uint64_t) * CHAR_BIT - 24));
+                    compile_error("Error compiling double immediate: " << std::get<std::string>(parsed), instr.line_number, instr.column_number);
+                    continue;
                 }
+                else
+                {
+                    std::string out;
+                    out.reserve(sizeof(double));
+                    utils::pun_write(&out[0], std::get<double>(parsed));
+                    instr.operands[1] = out;
+                    instr_count += 1 + (utils::pun_reinterpret<std::uint64_t>(std::get<double>(parsed)) << (sizeof(double) - sizeof(std::uint16_t) - sizeof(std::uint8_t)) * CHAR_BIT);
+                }
+                instr_count++;
                 break;
             }
             case 6:
             {
-                if (instr.src1 != "null")
+                if (instr.operands[1] != "null")
                 {
-                    compiling_error("Cannot load non-null value " << instr.src1 << " into reference variable " << instr.dest);
+                    compile_error("Cannot load non-null immediate for object", instr.line_number, instr.column_number);
+                    continue;
                 }
-                instruction = ::construct40(::itype::LNL, dest->second.offset, 0);
+                instr_count++;
+                break;
             }
             }
             break;
         }
-        case keywords::keyword::CST:
+        default:
+            instr_count++;
+            break;
+        }
+    }
+#pragma region
+
+#define match_types(var1, var2)                                                                                                                                      \
+    if (var1.type != var2.type)                                                                                                                                      \
+    {                                                                                                                                                                \
+        compile_error("Expected " #var1 " (" << var1.type << ") and " #var2 " (" << var2.type << ") to have the same type", instr.line_number, instr.column_number); \
+    }
+#pragma endregion
+    for (auto &instr : proc.instructions)
+    {
+        switch (instr.itype)
         {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            if (src1->second.type == dest->second.type)
+#pragma region
+
+#define pinst(type, letter, keyword)                                                                                  \
+    case type:                                                                                                        \
+        mtd.instructions.push_back(::construct3(::itype::letter##keyword, 0, dest.offset, src1.offset, src2.offset)); \
+        break
+#pragma endregion
+#pragma region
+
+#define pkey(keyword)                                                                                                                               \
+    case ktype::keyword:                                                                                                                            \
+    {                                                                                                                                               \
+        lookup_variable(dest, 0);                                                                                                                   \
+        lookup_variable(src1, 1);                                                                                                                   \
+        lookup_variable(src2, 2);                                                                                                                   \
+        match_types(dest, src1);                                                                                                                    \
+        match_types(src1, src2);                                                                                                                    \
+        switch (dest.type)                                                                                                                          \
+        {                                                                                                                                           \
+            pinst(2, I, keyword);                                                                                                                   \
+            pinst(3, L, keyword);                                                                                                                   \
+            pinst(4, F, keyword);                                                                                                                   \
+            pinst(5, D, keyword);                                                                                                                   \
+        default:                                                                                                                                    \
+        {                                                                                                                                           \
+            compile_error("Operands of type " << dest.type << " cannot be used for instruction " #keyword, instr.line_number, instr.column_number); \
+            continue;                                                                                                                               \
+        }                                                                                                                                           \
+        }                                                                                                                                           \
+        break;                                                                                                                                      \
+    }
+#pragma endregion
+            pkey(ADD);
+            pkey(SUB);
+            pkey(MUL);
+            pkey(DIV);
+#pragma region
+
+#define lookup_imm24                                                                                                            \
+    auto imm24_var = ::to24(instr.operands[3]);                                                                                 \
+    if (std::holds_alternative<std::string>(imm24_var))                                                                         \
+    {                                                                                                                           \
+        compile_error("Error parsing immediate: " << std::get<std::string>(imm24_var), instr.line_number, instr.column_number); \
+        continue;                                                                                                               \
+    }                                                                                                                           \
+    std::int32_t imm24 = std::get<std::int32_t>(imm24_var)
+#pragma endregion
+#pragma region
+
+#define pinsti(type, letter, keyword)                                                                         \
+    case type:                                                                                                \
+        mtd.instructions.push_back(::construct24(::itype::letter##keyword, dest.offset, src1.offset, imm24)); \
+        break
+#pragma endregion
+#pragma region
+#define pkeyi(keyword)                                                                                                                              \
+    case ktype::keyword:                                                                                                                            \
+    {                                                                                                                                               \
+        lookup_variable(dest, 0);                                                                                                                   \
+        lookup_variable(src1, 1);                                                                                                                   \
+        match_types(dest, src1);                                                                                                                    \
+        lookup_imm24;                                                                                                                               \
+        switch (dest.type)                                                                                                                          \
+        {                                                                                                                                           \
+            pinsti(2, I, keyword);                                                                                                                  \
+            pinsti(3, L, keyword);                                                                                                                  \
+            pinsti(4, F, keyword);                                                                                                                  \
+            pinsti(5, D, keyword);                                                                                                                  \
+        default:                                                                                                                                    \
+        {                                                                                                                                           \
+            compile_error("Operands of type " << dest.type << " cannot be used for instruction " #keyword, instr.line_number, instr.column_number); \
+            continue;                                                                                                                               \
+        }                                                                                                                                           \
+        }                                                                                                                                           \
+        break;                                                                                                                                      \
+    }
+#pragma endregion
+            pkeyi(ADDI);
+            pkeyi(SUBI);
+            pkeyi(MULI);
+            pkeyi(DIVI);
+#pragma region
+
+#define ikey(keyword)                                                                                                                               \
+    case ktype::keyword:                                                                                                                            \
+    {                                                                                                                                               \
+        lookup_variable(dest, 0);                                                                                                                   \
+        lookup_variable(src1, 1);                                                                                                                   \
+        lookup_variable(src2, 2);                                                                                                                   \
+        match_types(dest, src1);                                                                                                                    \
+        match_types(src1, src2);                                                                                                                    \
+        switch (dest.type)                                                                                                                          \
+        {                                                                                                                                           \
+            pinst(2, I, keyword);                                                                                                                   \
+            pinst(3, L, keyword);                                                                                                                   \
+        default:                                                                                                                                    \
+        {                                                                                                                                           \
+            compile_error("Operands of type " << dest.type << " cannot be used for instruction " #keyword, instr.line_number, instr.column_number); \
+            continue;                                                                                                                               \
+        }                                                                                                                                           \
+        }                                                                                                                                           \
+        break;                                                                                                                                      \
+    }
+#pragma endregion
+            ikey(DIVU);
+            ikey(AND);
+            ikey(OR);
+            ikey(XOR);
+            ikey(SLL);
+            ikey(SRL);
+            ikey(SRA);
+#pragma region
+
+#define ikeyi(keyword)                                                                                                                              \
+    case ktype::keyword:                                                                                                                            \
+    {                                                                                                                                               \
+        lookup_variable(dest, 0);                                                                                                                   \
+        lookup_variable(src1, 1);                                                                                                                   \
+        match_types(dest, src1);                                                                                                                    \
+        lookup_imm24;                                                                                                                               \
+        switch (dest.type)                                                                                                                          \
+        {                                                                                                                                           \
+            pinsti(2, I, keyword);                                                                                                                  \
+            pinsti(3, L, keyword);                                                                                                                  \
+        default:                                                                                                                                    \
+        {                                                                                                                                           \
+            compile_error("Operands of type " << dest.type << " cannot be used for instruction " #keyword, instr.line_number, instr.column_number); \
+            continue;                                                                                                                               \
+        }                                                                                                                                           \
+        }                                                                                                                                           \
+        break;                                                                                                                                      \
+    }
+#pragma endregion
+            ikeyi(DIVUI);
+            ikeyi(ANDI);
+            ikeyi(ORI);
+            ikeyi(XORI);
+            ikeyi(SLLI);
+            ikeyi(SRLI);
+            ikeyi(SRAI);
+        case ktype::NEG:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            match_types(dest, src1);
+            switch (dest.type)
             {
-                compiling_error("Casting between two variables of same type " << src1->second.type << " is not allowed");
-            }
-            if (src1->second.type == 6)
-            {
-                compiling_error(instr.src1 << " is a reference variable and cannot be cast");
-            }
-            if (dest->second.type == 6)
-            {
-                compiling_error(instr.dest << " is a reference variable and cannot be cast");
-            }
-            ::itype type;
-            switch (::cast_types(src1->second.type, dest->second.type))
-            {
-            case ::cast_types(2, 3):
-                type = ::itype::ICSTL;
+            case 2:
+                mtd.instructions.push_back(::construct3(::itype::INEG, 0, dest.offset, src1.offset, 0));
                 break;
-            case ::cast_types(2, 4):
-                type = ::itype::ICSTF;
+            case 3:
+                mtd.instructions.push_back(::construct3(::itype::LNEG, 0, dest.offset, src1.offset, 0));
                 break;
-            case ::cast_types(2, 5):
-                type = ::itype::ICSTD;
+            case 4:
+                mtd.instructions.push_back(::construct3(::itype::FNEG, 0, dest.offset, src1.offset, 0));
                 break;
-            case ::cast_types(3, 2):
-                type = ::itype::LCSTI;
-                break;
-            case ::cast_types(3, 4):
-                type = ::itype::LCSTF;
-                break;
-            case ::cast_types(3, 5):
-                type = ::itype::LCSTD;
-                break;
-            case ::cast_types(4, 2):
-                type = ::itype::FCSTI;
-                break;
-            case ::cast_types(4, 3):
-                type = ::itype::FCSTL;
-                break;
-            case ::cast_types(4, 5):
-                type = ::itype::FCSTD;
-                break;
-            case ::cast_types(5, 2):
-                type = ::itype::DCSTI;
-                break;
-            case ::cast_types(5, 3):
-                type = ::itype::DCSTL;
-                break;
-            case ::cast_types(5, 4):
-                type = ::itype::DCSTF;
+            case 5:
+                mtd.instructions.push_back(::construct3(::itype::DNEG, 0, dest.offset, src1.offset, 0));
                 break;
             default:
-                compiling_error("Invalid combination of types for src1 and dest (" << src1->second.type << " and " << dest->second.type << ")");
+            {
+                compile_error("Objects cannot be negated!", instr.line_number, instr.column_number);
+                continue;
             }
-            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
+            }
             break;
         }
-        case keywords::keyword::VNEW:
+        case ktype::LI:
         {
-            lookup_variable(dest);
-            mtd.thunks.push_back({instr.src1, static_cast<std::uint16_t>(mtd.instructions.size()), "", location::IMM24, thunk_type::CLASS});
-            instruction = ::construct3(::itype::VNEW, 0, dest->second.offset, 0, 0);
-            break;
-        }
-        case keywords::keyword::IOF:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            instruction = ::construct3(::itype::IOF, 0, dest->second.offset, src1->second.offset, 0);
-            mtd.thunks.push_back({instr.src2, static_cast<std::uint16_t>(mtd.instructions.size()), "", location::IMM24, thunk_type::CLASS});
-            break;
-        }
-#define thunk(var, name, loc, ttype)                                                              \
-    std::size_t split_idx = instr.var.find_last_of('.');                                          \
-    if (split_idx == std::string::npos)                                                           \
-    {                                                                                             \
-        compiling_error(name " name must b edelimited from class name by a single period ('.')"); \
-    }                                                                                             \
-    mtd.thunks.push_back({instr.var.substr(split_idx + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.var.substr(0, split_idx), location::loc, thunk_type::ttype});
-        case keywords::keyword::CVLLD:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            instruction = ::construct3(::itype::CVLLD, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
-            break;
-        }
-        case keywords::keyword::SVLLD:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            instruction = ::construct3(::itype::SVLLD, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
-            break;
-        }
-        case keywords::keyword::VLLD:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(src1, 6);
-            ::itype type;
-            switch (dest->second.type)
+            lookup_variable(dest, 0);
+            switch (dest.type)
             {
             case 2:
-                type = ::itype::IVLLD;
+            case 4:
+                mtd.instructions.push_back(::construct32(::itype::LDI, 0, dest.offset, utils::pun_read<std::int32_t>(instr.operands[1].c_str())));
                 break;
             case 3:
-                type = ::itype::LVLLD;
-                break;
-            case 4:
-                type = ::itype::FVLLD;
-                break;
             case 5:
-                type = ::itype::DVLLD;
-                break;
-            case 6:
-                type = ::itype::VVLLD;
-                break;
-            }
-            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
-            break;
-        }
-        case keywords::keyword::CSTLD:
-        {
-            lookup_variable(dest);
-            require_type(dest, 2);
-            instruction = ::construct3(::itype::CSTLD, 0, dest->second.offset, 0, 0);
-            thunk(src1, "Static variable", IMM32, SVAR);
-            break;
-        }
-        case keywords::keyword::SSTLD:
-        {
-            lookup_variable(dest);
-            require_type(dest, 2);
-            instruction = ::construct3(::itype::SSTLD, 0, dest->second.offset, 0, 0);
-            thunk(src1, "Static variable", IMM32, SVAR);
-            break;
-        }
-        case keywords::keyword::STLD:
-        {
-            lookup_variable(dest);
-            ::itype type;
-            switch (dest->second.type)
             {
-            case 2:
-                type = ::itype::ISTLD;
-                break;
-            case 3:
-                type = ::itype::LSTLD;
-                break;
-            case 4:
-                type = ::itype::FSTLD;
-                break;
-            case 5:
-                type = ::itype::DSTLD;
-                break;
-            case 6:
-                type = ::itype::VSTLD;
+                std::uint64_t imm = utils::pun_read<std::int64_t>(instr.operands[1].c_str());
+                mtd.instructions.push_back(::construct40(::itype::LUI, dest.offset, imm >> (sizeof(std::uint64_t) - sizeof(std::uint16_t) - sizeof(std::uint8_t)) * CHAR_BIT));
+                imm <<= (sizeof(std::uint64_t) - sizeof(std::uint16_t) - sizeof(std::uint8_t)) * CHAR_BIT;
+                if (imm)
+                {
+                    mtd.instructions.push_back(::construct24(::itype::LADDI, dest.offset, dest.offset, imm >> (sizeof(std::uint64_t) - sizeof(std::uint16_t) - sizeof(std::uint8_t)) * CHAR_BIT));
+                }
                 break;
             }
-            instruction = ::construct3(type, 0, dest->second.offset, 0, 0);
-            thunk(src1, "Static variable", IMM32, SVAR);
+            case 6:
+                mtd.instructions.push_back(::construct40(::itype::LNL, dest.offset, 0));
+                break;
+            }
             break;
         }
-        case keywords::keyword::CALD:
+        case ktype::CST:
         {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            require_type(src2, 2);
-            instruction = ::construct3(::itype::CVLLD, 0, dest->second.offset, src1->second.offset, src2->second.offset);
-            break;
-        }
-        case keywords::keyword::SALD:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(dest, 2);
-            require_type(src1, 6);
-            require_type(src2, 2);
-            instruction = ::construct3(::itype::SVLLD, 0, dest->second.offset, src1->second.offset, src2->second.offset);
-            break;
-        }
-        case keywords::keyword::ALD:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(src1, 6);
-            require_type(src2, 2);
-            ::itype type;
-            switch (dest->second.type)
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            if (dest.type == src1.type)
             {
-            case 2:
-                type = ::itype::IALD;
-                break;
-            case 3:
-                type = ::itype::LALD;
-                break;
-            case 4:
-                type = ::itype::FALD;
-                break;
-            case 5:
-                type = ::itype::DALD;
-                break;
-            case 6:
-                type = ::itype::VALD;
-                break;
+                compile_error("Cannot cast between variables " << instr.operands[0] << " and " << instr.operands[1] << " of the same type " << dest.type, instr.line_number, instr.column_number);
+                continue;
             }
-            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, src2->second.offset);
-            break;
-        }
-        case keywords::keyword::CVLSR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 6);
-            require_type(src1, 2);
-            instruction = ::construct3(::itype::CVLSR, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
-            break;
-        }
-        case keywords::keyword::SVLSR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 6);
-            require_type(src1, 2);
-            instruction = ::construct3(::itype::SVLSR, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
-            break;
-        }
-        case keywords::keyword::VLSR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(dest, 6);
-            ::itype type;
-            switch (src1->second.type)
+#define minicast(dtype, dletter, c1, c2, c3, l1, l2, l3)                                                         \
+    case dtype:                                                                                                  \
+        switch (src1.type)                                                                                       \
+        {                                                                                                        \
+        case c1:                                                                                                 \
+            mtd.instructions.push_back(::construct3(::itype::dletter##CST##l1, 0, dest.offset, src1.offset, 0)); \
+            break;                                                                                               \
+        case c2:                                                                                                 \
+            mtd.instructions.push_back(::construct3(::itype::dletter##CST##l2, 0, dest.offset, src1.offset, 0)); \
+            break;                                                                                               \
+        case c3:                                                                                                 \
+            mtd.instructions.push_back(::construct3(::itype::dletter##CST##l3, 0, dest.offset, src1.offset, 0)); \
+            break;                                                                                               \
+        }                                                                                                        \
+        break
+            switch (dest.type)
             {
-            case 2:
-                type = ::itype::IVLSR;
-                break;
-            case 3:
-                type = ::itype::LVLSR;
-                break;
-            case 4:
-                type = ::itype::FVLSR;
-                break;
-            case 5:
-                type = ::itype::DVLSR;
-                break;
-            case 6:
-                type = ::itype::VVLSR;
-                break;
+                minicast(2, I, 3, 4, 5, L, F, D);
+                minicast(3, L, 2, 4, 5, I, F, D);
+                minicast(4, F, 2, 3, 5, I, L, D);
+                minicast(5, D, 2, 3, 4, I, L, F);
             }
-            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Instance variable", IMM24, IVAR);
             break;
         }
-        case keywords::keyword::CSTSR:
+#define lookup_label                                                                                    \
+    auto dest##_it = labels.find(instr.operands[0]);                                                    \
+    if (dest##_it == labels.end())                                                                      \
+    {                                                                                                   \
+        compile_error("Undefined label " << instr.operands[0], instr.line_number, instr.column_number); \
+        continue;                                                                                       \
+    }                                                                                                   \
+    auto dest = static_cast<std::make_signed_t<std::size_t>>(static_cast<std::uint16_t>(mtd.instructions.size())) + 1 - dest##_it->second
+#define binst(type, letter, keyword)                                                                                            \
+    case type:                                                                                                                  \
+        mtd.instructions.push_back(::construct3(::itype::letter##keyword, dest > 0, std::abs(dest), src1.offset, src2.offset)); \
+        break
+#define beop(keyword)                                                                                                                                                                   \
+    case ktype::keyword:                                                                                                                                                                \
+    {                                                                                                                                                                                   \
+        lookup_variable(src1, 1);                                                                                                                                                       \
+        lookup_variable(src2, 2);                                                                                                                                                       \
+        match_types(src1, src2);                                                                                                                                                        \
+        lookup_label;                                                                                                                                                                   \
+        mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::I##keyword) + src1.type - 2), dest > 0, std::abs(dest), src1.offset, src2.offset)); \
+                                                                                                                                                                                        \
+        break;                                                                                                                                                                          \
+    }
+            beop(BEQ);
+            beop(BNEQ);
+#define bop(keyword)                                                                                                                                                                                           \
+    case ktype::keyword:                                                                                                                                                                                       \
+    {                                                                                                                                                                                                          \
+        lookup_variable(src1, 1);                                                                                                                                                                              \
+        lookup_variable(src2, 2);                                                                                                                                                                              \
+        match_types(src1, src2);                                                                                                                                                                               \
+        lookup_label;                                                                                                                                                                                          \
+        switch (src1.type)                                                                                                                                                                                     \
+        {                                                                                                                                                                                                      \
+            binst(2, I, keyword);                                                                                                                                                                              \
+            binst(3, L, keyword);                                                                                                                                                                              \
+            binst(4, F, keyword);                                                                                                                                                                              \
+            binst(5, D, keyword);                                                                                                                                                                              \
+        default:                                                                                                                                                                                               \
+        {                                                                                                                                                                                                      \
+            compile_error("Cannot perform comparison operation " << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " on operands of object type", instr.line_number, instr.column_number); \
+            continue;                                                                                                                                                                                          \
+        }                                                                                                                                                                                                      \
+        }                                                                                                                                                                                                      \
+        break;                                                                                                                                                                                                 \
+    }
+            bop(BLT);
+            bop(BGT);
+            bop(BLE);
+            bop(BGE);
+#define binsti(type, letter, keyword)                                                                                     \
+    case type:                                                                                                            \
+        mtd.instructions.push_back(::construct3(::itype::letter##keyword, dest > 0, std::abs(dest), src1.offset, imm16)); \
+        break
+#define parse_imm16                                                                              \
+    auto imm16_var = ::to16(instr.operands[2]);                                                  \
+    if (std::holds_alternative<std::string>(imm16_var))                                          \
+    {                                                                                            \
+        compile_error("Error parsing 16 bit immediate", instr.line_number, instr.column_number); \
+        continue;                                                                                \
+    }                                                                                            \
+    auto imm16 = std::get<std::int16_t>(imm16_var);
+#define beopi(keyword)                                                                                                                                                                \
+    case ktype::keyword:                                                                                                                                                              \
+    {                                                                                                                                                                                 \
+        lookup_variable(src1, 1);                                                                                                                                                     \
+        lookup_label;                                                                                                                                                                 \
+        if (src1.type != 6)                                                                                                                                                           \
+        {                                                                                                                                                                             \
+            parse_imm16;                                                                                                                                                              \
+            mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::I##keyword) + src1.type - 2), dest > 0, std::abs(dest), src1.offset, imm16)); \
+            break;                                                                                                                                                                    \
+        }                                                                                                                                                                             \
+        else                                                                                                                                                                          \
+        {                                                                                                                                                                             \
+            if (instr.operands[2] != "null")                                                                                                                                          \
+            {                                                                                                                                                                         \
+                compile_error("Equals immediates may only be null!", instr.line_number, instr.column_number);                                                                         \
+                continue;                                                                                                                                                             \
+            }                                                                                                                                                                         \
+            mtd.instructions.push_back(::construct3(::itype::V##keyword, dest > 0, std::abs(dest), src1.offset, 0));                                                                  \
+            break;                                                                                                                                                                    \
+        }                                                                                                                                                                             \
+    }
+            beopi(BEQI);
+            beopi(BNEQI);
+#define bopi(keyword)                                                                                                                                                                                          \
+    case ktype::keyword:                                                                                                                                                                                       \
+    {                                                                                                                                                                                                          \
+        lookup_variable(src1, 1);                                                                                                                                                                              \
+        parse_imm16;                                                                                                                                                                                           \
+        lookup_label;                                                                                                                                                                                          \
+        switch (src1.type)                                                                                                                                                                                     \
+        {                                                                                                                                                                                                      \
+            binsti(2, I, keyword);                                                                                                                                                                             \
+            binsti(3, L, keyword);                                                                                                                                                                             \
+            binsti(4, F, keyword);                                                                                                                                                                             \
+            binsti(5, D, keyword);                                                                                                                                                                             \
+        default:                                                                                                                                                                                               \
+        {                                                                                                                                                                                                      \
+            compile_error("Cannot perform comparison operation " << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " on operands of object type", instr.line_number, instr.column_number); \
+            continue;                                                                                                                                                                                          \
+        }                                                                                                                                                                                                      \
+        }                                                                                                                                                                                                      \
+        break;                                                                                                                                                                                                 \
+    }
+            bopi(BLTI);
+            bopi(BGTI);
+            bopi(BLEI);
+            bopi(BGEI);
+        case ktype::BU:
         {
-            lookup_variable(src1);
-            require_type(src1, 2);
-            instruction = ::construct32(::itype::CSTSR, 0, src1->second.offset, 0);
-            thunk(dest, "Static variable", IMM32, SVAR);
+            lookup_label;
+            mtd.instructions.push_back(::construct32(::itype::BU, dest > 0, std::abs(dest), 0));
             break;
         }
-        case keywords::keyword::SSTSR:
+#define require_type(tp, variable, name)                                                                                                               \
+    if (variable.type != tp)                                                                                                                           \
+    {                                                                                                                                                  \
+        compile_error("Wanted type " << tp << " for variable " << name << ", but was type " << variable.type, instr.line_number, instr.column_number); \
+        continue;                                                                                                                                      \
+    }
+        case ktype::ALEN:
         {
-            lookup_variable(src1);
-            require_type(src1, 2);
-            instruction = ::construct32(::itype::SSTSR, 0, src1->second.offset, 0);
-            thunk(dest, "Static variable", IMM32, SVAR);
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            mtd.instructions.push_back(::construct3(::itype::IVLLD, 0, dest.offset, src1.offset, 0));
             break;
         }
-        case keywords::keyword::STSR:
+        case ktype::ANEW:
         {
-            lookup_variable(src1);
-            ::itype type;
-            switch (src1->second.type)
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 2);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src1, instr.operands[2]);
+            if (auto tp = type_map.find(instr.operands[1]); tp != type_map.end())
             {
-            case 2:
-                type = ::itype::ISTSR;
-                break;
-            case 3:
-                type = ::itype::LSTSR;
-                break;
-            case 4:
-                type = ::itype::FSTSR;
-                break;
-            case 5:
-                type = ::itype::DSTSR;
-                break;
-            case 6:
-                type = ::itype::VSTSR;
-                break;
+                mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::CANEW) + tp->second), 0, dest.offset, src1.offset, 0));
             }
-            instruction = ::construct32(type, 0, src1->second.offset, 0);
-            thunk(dest, "Static variable", IMM32, SVAR);
-            break;
-        }
-        case keywords::keyword::CASR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(dest, 6);
-            require_type(src1, 2);
-            require_type(src2, 2);
-            instruction = ::construct3(::itype::CASR, 0, dest->second.offset, src1->second.offset, src2->second.offset);
-            break;
-        }
-        case keywords::keyword::SASR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(dest, 6);
-            require_type(src1, 2);
-            require_type(src2, 2);
-            instruction = ::construct3(::itype::SASR, 0, dest->second.offset, src1->second.offset, src2->second.offset);
-            break;
-        }
-        case keywords::keyword::ASR:
-        {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            lookup_variable(src2);
-            require_type(dest, 6);
-            require_type(src2, 2);
-            ::itype type;
-            switch (src1->second.type)
+            else if (instr.operands[1] == "short")
             {
-            case 2:
-                type = ::itype::IVLSR;
-                break;
-            case 3:
-                type = ::itype::LVLSR;
-                break;
-            case 4:
-                type = ::itype::FVLSR;
-                break;
-            case 5:
-                type = ::itype::DVLSR;
-                break;
-            case 6:
-                type = ::itype::VVLSR;
-                break;
+                mtd.instructions.push_back(::construct3(::itype::SANEW, 0, dest.offset, src1.offset, 0));
             }
-            instruction = ::construct3(type, 0, dest->second.offset, src1->second.offset, src2->second.offset);
+            else if (instr.operands[1] == "char")
+            {
+                mtd.instructions.push_back(::construct3(::itype::CANEW, 0, dest.offset, src1.offset, 0));
+            }
+            else
+            {
+                compile_error("Invalid type for array of " << instr.operands[1], instr.line_number, instr.column_number);
+                continue;
+            }
             break;
         }
-        case keywords::keyword::VINV:
+        case ktype::CALD:
         {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(src1, 6);
-            instruction = ::construct24(::itype::VINV, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Method", IMM24, METHOD);
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(::itype::CALD, 0, dest.offset, src1.offset, src2.offset));
             break;
         }
-        case keywords::keyword::IINV:
+        case ktype::SALD:
         {
-            lookup_variable(dest);
-            lookup_variable(src1);
-            require_type(src1, 6);
-            instruction = ::construct24(::itype::IINV, dest->second.offset, src1->second.offset, 0);
-            thunk(src2, "Method", IMM24, METHOD);
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(::itype::SALD, 0, dest.offset, src1.offset, src2.offset));
             break;
         }
-        case keywords::keyword::SINV:
+        case ktype::ALD:
         {
-            lookup_variable(dest);
-            instruction = ::construct32(::itype::SINV, 0, dest->second.offset, 0);
-            thunk(src1, "Method", IMM32, METHOD);
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(6, src1, instr.operands[1]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::CALD) + dest.type), 0, dest.offset, src1.offset, src2.offset));
             break;
         }
-        case keywords::keyword::LBL:
-        case keywords::keyword::DEF:
+        case ktype::CASR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src1, instr.operands[1]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(::itype::CASR, 0, dest.offset, src1.offset, src2.offset));
+            break;
+        }
+        case ktype::SASR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src1, instr.operands[1]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(::itype::SASR, 0, dest.offset, src1.offset, src2.offset));
+            break;
+        }
+        case ktype::ASR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            lookup_variable(src2, 2);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src2, instr.operands[2]);
+            mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::CASR) + src1.type), 0, dest.offset, src1.offset, src2.offset));
+            break;
+        }
+        case ktype::RET:
+        {
+            lookup_variable(src1, 0);
+            require_type(mtd.return_type, src1, instr.operands[0]);
+            mtd.instructions.push_back(::construct3(static_cast<::itype>(static_cast<unsigned>(::itype::IRET) + src1.type - 2), 0, 0, src1.offset, 0));
+            break;
+        }
+        case ktype::NOP:
+        {
+            mtd.instructions.push_back(::construct40(::itype::NOP, 0, 0));
+            break;
+        }
+        case ktype::IOF:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2], static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2], location::IMM24, thunk_type::CLASS});
+            mtd.instructions.push_back(::construct24(::itype::IOF, dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::VNEW:
+        {
+            lookup_variable(dest, 0);
+            require_type(6, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[2], static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2], location::IMM24, thunk_type::CLASS});
+            mtd.instructions.push_back(::construct24(::itype::VNEW, dest.offset, 0, 0));
+            break;
+        }
+        case ktype::CVLLD:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(::itype::CVLLD, dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::SVLLD:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(2, dest, instr.operands[0]);
+            require_type(6, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(::itype::SVLLD, dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::VLLD:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(6, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(static_cast<::itype>(static_cast<unsigned>(::itype::CVLLD) + dest.type), dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::CVLSR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(::itype::CVLSR, dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::SVLSR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(6, dest, instr.operands[0]);
+            require_type(2, src1, instr.operands[1]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(::itype::SVLSR, dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::VLSR:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            require_type(6, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::IVAR});
+            mtd.instructions.push_back(::construct24(static_cast<::itype>(static_cast<unsigned>(::itype::CVLSR) + src1.type), dest.offset, src1.offset, 0));
+            break;
+        }
+        case ktype::CSTLD:
+        {
+            lookup_variable(dest, 0);
+            require_type(2, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(::itype::CSTLD, 0, dest.offset, 0));
+            break;
+        }
+        case ktype::SSTLD:
+        {
+            lookup_variable(dest, 0);
+            require_type(2, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(::itype::SSTLD, 0, dest.offset, 0));
+            break;
+        }
+        case ktype::STLD:
+        {
+            lookup_variable(dest, 0);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(static_cast<::itype>(static_cast<unsigned>(::itype::CSTLD) + dest.type), 0, dest.offset, 0));
+            break;
+        }
+        case ktype::CSTSR:
+        {
+            lookup_variable(dest, 0);
+            require_type(2, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(::itype::CSTSR, 0, dest.offset, 0));
+            break;
+        }
+        case ktype::SSTSR:
+        {
+            lookup_variable(dest, 0);
+            require_type(2, dest, instr.operands[0]);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(::itype::SSTSR, 0, dest.offset, 0));
+            break;
+        }
+        case ktype::STSR:
+        {
+            lookup_variable(dest, 0);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::SVAR});
+            mtd.instructions.push_back(::construct32(static_cast<::itype>(static_cast<unsigned>(::itype::CSTSR) + dest.type), 0, dest.offset, 0));
+            break;
+        }
+#define load_args                                                                                                     \
+    std::uint64_t arg_builder = 0;                                                                                    \
+    for (unsigned i = 0; i < instr.operands.size() - 2; i++)                                                          \
+    {                                                                                                                 \
+        lookup_variable(arg, i + 2);                                                                                  \
+        arg_builder |= static_cast<std::uint64_t>(arg.offset) << (i % 4 * CHAR_BIT * sizeof(std::uint16_t));          \
+        if (i % (sizeof(std::uint64_t) / sizeof(std::uint16_t)) == sizeof(std::uint64_t) / sizeof(std::uint16_t) - 1) \
+        {                                                                                                             \
+            mtd.instructions.push_back(arg_builder);                                                                  \
+            arg_builder = 0;                                                                                          \
+        }                                                                                                             \
+    }                                                                                                                 \
+    if (instr.operands.size() % (sizeof(std::uint64_t) / sizeof(std::uint16_t)) != 2)                                 \
+    {                                                                                                                 \
+        mtd.instructions.push_back(arg_builder);                                                                      \
+    }
+        case ktype::SINV:
+        {
+            lookup_variable(dest, 0);
+            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::METHOD});
+            mtd.instructions.push_back(::construct32(::itype::SINV, 0, dest.offset, 0));
+            load_args;
+            break;
+        }
+        case ktype::IINV:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::METHOD});
+            mtd.instructions.push_back(::construct24(::itype::IINV, dest.offset, src1.offset, 0));
+            load_args;
+            break;
+        }
+        case ktype::VINV:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::METHOD});
+            mtd.instructions.push_back(::construct24(::itype::VINV, dest.offset, src1.offset, 0));
+            load_args;
+            break;
+        }
+        case ktype::LBL:
+        case ktype::DEF:
+            break;
+        case ktype::BCMP:
+        case ktype::BADR:
+        case ktype::EXC:
+        {
+            compile_error("Instruction type " << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " is not supported yet!", instr.line_number, instr.column_number);
             continue;
-        case keywords::keyword::BCMP:
-        case keywords::keyword::BADR:
-        case keywords::keyword::NOP:
-        default:
-            compiling_error("Unsupported keyword type in procedure");
         }
-        mtd.instructions.push_back(instruction);
+        case ktype::IMP:
+        case ktype::IVAR:
+        case ktype::SVAR:
+        case ktype::PROC:
+        case ktype::EPROC:
+        case ktype::EXT:
+        case ktype::IMPL:
+        case ktype::CLZ:
+        {
+            compile_error("Instruction type " << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << " is not allowed within the body of a method!", instr.line_number, instr.column_number);
+            continue;
+        }
+        }
     }
     return mtd;
 }

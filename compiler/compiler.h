@@ -50,7 +50,7 @@ namespace oops_bcode_compiler
             std::uint64_t size;
         };
 
-        std::variant<method, std::string> compile(const oops_bcode_compiler::parsing::cls::procedure &procedure, std::stringstream& error_builder);
+        std::variant<method, std::vector<std::string>> compile(oops_bcode_compiler::parsing::cls::procedure &procedure);
     } // namespace compiler
 } // namespace oops_bcode_compiler
 

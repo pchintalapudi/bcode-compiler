@@ -54,14 +54,15 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
     std::vector<compiler::method> compiled_methods;
     for (auto &proc : cls.self_methods)
     {
-        auto maybe_method = compiler::compile(proc, error_builder);
+        auto maybe_method = compiler::compile(proc);
         if (std::holds_alternative<compiler::method>(maybe_method))
         {
             compiled_methods.push_back(std::get<compiler::method>(maybe_method));
         }
         else
         {
-            errors.push_back(std::get<std::string>(maybe_method));
+            auto &compile_errors = std::get<std::vector<std::string>>(maybe_method);
+            std::copy(compile_errors.begin(), compile_errors.end(), std::back_inserter(errors));
         }
     }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
