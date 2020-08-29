@@ -10,8 +10,10 @@
 #include "../utils/puns.h"
 #include "../utils/hashing.h"
 #include "../compiler/compiler.h"
+#include "../debug/logs.h"
 
 using namespace oops_bcode_compiler::transformer;
+using namespace oops_bcode_compiler::debug;
 
 namespace
 {

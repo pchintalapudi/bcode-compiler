@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
-#include <iostream>
+
+#include "../debug/logs.h"
 
 using namespace oops_bcode_compiler::parsing;
+using namespace oops_bcode_compiler::debug;
 
 namespace
 {
@@ -76,9 +78,8 @@ namespace
         }
         for (auto &token : tokens)
         {
-            std::cout << "Lexed token " << token.token << " at line " << token.line_number << " and column " << token.column_number << "\n";
+            log.builder(logger::level::debug) << "Lexed token " << token.token << " at line " << token.line_number << " and column " << token.column_number << logger::logbuilder::end;
         }
-        std::cout << std::endl;
         return tokens;
     }
 
@@ -86,21 +87,14 @@ namespace
     {
         for (auto &token : line)
         {
-            std::cout << "Parsing token " << token.token << " from line " << token.line_number << " and column " << token.column_number << "\n";
+            log.builder(logger::level::debug) << "Parsing token " << token.token << " from line " << token.line_number << " and column " << token.column_number << logger::logbuilder::end;
         }
-        std::cout << std::endl;
 #define parse_error(error, line_number, column_number)                                                                \
     std::stringstream error_builder;                                                                                  \
     error_builder << "Parsing error: \"" << error << "\" at line " << line_number << " and column " << column_number; \
     return error_builder.str()
         if (!line.empty())
         {
-            // std::cout << "Line " << line[0].line_number;
-            // auto tidx = 0;
-            // for (auto token : line)
-            // {
-            //     std::cout << " Token " << tidx++ << " Column " << token.column_number << " Value " << token.token << "\n";
-            // }
             std::transform(line[0].token.begin(), line[0].token.end(), line[0].token.begin(), [](unsigned char c) { return std::toupper(c); });
             auto keyword = oops_bcode_compiler::keywords::string_to_keywords.find(line[0].token);
             if (keyword == oops_bcode_compiler::keywords::string_to_keywords.end())
@@ -139,7 +133,6 @@ namespace
                     {
                         parse_error("Class name must be the first import!", line[0].line_number, line[0].column_number);
                     }
-                    std::cout << "CLZ was " << line[1].token << "\n";
                     cls.imports.push_back({line[1].token, line[1].line_number, line[1].column_number});
                     break;
                 }
@@ -177,10 +170,6 @@ namespace
                     {
                     case oops_bcode_compiler::keywords::keyword::CLZ:
                     {
-                        for (auto &imp : cls.imports)
-                        {
-                            std::cout << "Previous import " << imp.name << "\n";
-                        }
                         cls.imports.push_back({line[2].token, line[2].line_number, line[2].column_number});
                         break;
                     }
@@ -412,26 +401,26 @@ std::optional<std::variant<cls, std::vector<std::string>>> oops_bcode_compiler::
     platform::close_file_mapping(*mapping);
     for (auto &error : errors)
     {
-        std::cerr << "Parsing error " << error << "\n";
+        log.builder(logger::level::error) << "Parsing error " << error << logger::logbuilder::end;
     }
-    std::cout << "Parsed " << ret.implement_count << " implemented classes\n";
+    log.builder(logger::level::debug) << "Parsed " << ret.implement_count << " implemented classes" << logger::logbuilder::end;
     for (auto &import : ret.imports)
     {
-        std::cout << "Parsed import " << import.name << " at line " << import.line_number << " and column " << import.column_number << "\n";
+        log.builder(logger::level::debug) << "Parsed import " << import.name << " at line " << import.line_number << " and column " << import.column_number << logger::logbuilder::end;
     }
     for (auto &ivar : ret.instance_variables)
     {
-        std::cout << "Parsed instance variable " << ivar.name << " of type " << ivar.host_name << " at line " << ivar.line_number << " and column " << ivar.column_number << "\n";
+        log.builder(logger::level::debug) << "Parsed instance variable " << ivar.name << " of type " << ivar.host_name << " at line " << ivar.line_number << " and column " << ivar.column_number << logger::logbuilder::end;
     }
     for (auto &svar : ret.static_variables)
     {
-        std::cout << "Parsed instance variable " << svar.name << " of type " << svar.host_name << " at line " << svar.line_number << " and column " << svar.column_number << "\n";
+        log.builder(logger::level::debug) << "Parsed instance variable " << svar.name << " of type " << svar.host_name << " at line " << svar.line_number << " and column " << svar.column_number << logger::logbuilder::end;
     }
     for (auto &method : ret.methods)
     {
-        std::cout << "Parsed method reference " << method.name << " from class " << method.host_name << " at line " << method.line_number << " and column " << method.column_number << std::endl;
+        log.builder(logger::level::debug) << "Parsed method reference " << method.name << " from class " << method.host_name << " at line " << method.line_number << " and column " << method.column_number << logger::logbuilder::end;
     }
-    std::cout << "Successfully parsed class " << ret.imports[6].name << std::endl;
+    log.builder(logger::level::debug) << "Successfully parsed class " << ret.imports[6].name << logger::logbuilder::end;
     if (errors.empty())
     {
         return ret;
