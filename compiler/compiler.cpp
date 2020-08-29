@@ -477,9 +477,9 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
 {
     static const std::unordered_map<std::string, std::uint8_t> type_map = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}, {"ref", 6}};
     std::vector<std::string> errors;
-#define compile_error(error, line, col)                                                  \
-    std::stringstream error_builder;                                                     \
-    error_builder << error << " at line " << line << ", column " << col;                 \
+#define compile_error(error, line, col)                                                       \
+    std::stringstream error_builder;                                                          \
+    error_builder << error << " at line " << line << ", column " << col;                      \
     logger.builder(logging::level::debug) << error_builder.str() << logging::logbuilder::end; \
     errors.push_back(error_builder.str())
     method mtd;
@@ -537,13 +537,14 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
     std::unordered_map<std::string, std::uint16_t> labels;
 #pragma region
 
-#define lookup_variable(name, offset)                                                                                 \
-    auto name##_it = local_variables.find(instr.operands[offset]);                                                    \
-    if (name##_it == local_variables.end())                                                                           \
-    {                                                                                                                 \
-        compile_error("Undefined local variable " << instr.operands[offset], instr.line_number, instr.column_number); \
-        continue;                                                                                                     \
-    }                                                                                                                 \
+#define lookup_variable(name, off)                                                                                                                                                                                                                                                                                                                           \
+    auto name##_it = local_variables.find(instr.operands[off]);                                                                                                                                                                                                                                                                                              \
+    if (name##_it == local_variables.end())                                                                                                                                                                                                                                                                                                                  \
+    {                                                                                                                                                                                                                                                                                                                                                        \
+        compile_error("Undefined local variable " << instr.operands[off], instr.line_number, instr.column_number);                                                                                                                                                                                                                                           \
+        continue;                                                                                                                                                                                                                                                                                                                                            \
+    }                                                                                                                                                                                                                                                                                                                                                        \
+    logger.builder(logging::level::debug) << "Stack offset of " #name " " << instr.operands[off] << " (argument " << std::to_string(static_cast<int>(off)) << ") is " << name##_it->second.offset << " and has type " << name##_it->second.type << " (Source line & col " << instr.line_number << ", " << instr.column_number << "), called from " << __LINE__ << logging::logbuilder::end; \
     auto name = name##_it->second
 #pragma endregion
     unsigned instr_count;
@@ -613,7 +614,7 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         }
         case ktype::LI:
         {
-            lookup_variable(dest, 1);
+            lookup_variable(dest, 0);
             switch (dest.type)
             {
             case 2:
@@ -812,6 +813,11 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
 #pragma endregion
     for (auto &instr : proc.instructions)
     {
+        logger.builder(logging::level::debug) << "Instruction " << keywords::keyword_to_string[static_cast<unsigned>(instr.itype)] << logging::logbuilder::end;
+        for (auto &operand : instr.operands)
+        {
+            logger.builder(logging::level::debug) << "Operand " << operand << logging::logbuilder::end;
+        }
         switch (instr.itype)
         {
 #pragma region
@@ -853,7 +859,7 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
 #pragma region
 
 #define lookup_imm24                                                                                                            \
-    auto imm24_var = ::to24(instr.operands[3]);                                                                                 \
+    auto imm24_var = ::to24(instr.operands[2]);                                                                                 \
     if (std::holds_alternative<std::string>(imm24_var))                                                                         \
     {                                                                                                                           \
         compile_error("Error parsing immediate: " << std::get<std::string>(imm24_var), instr.line_number, instr.column_number); \

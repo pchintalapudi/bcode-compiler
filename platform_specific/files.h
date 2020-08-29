@@ -18,7 +18,7 @@ namespace oops_bcode_compiler
 
         std::optional<file_mapping> create_class_file(std::string name, std::uint64_t size, std::string build_path);
 
-        void close_file_mapping(file_mapping fm);
+        void close_file_mapping(file_mapping fm, bool flush=false);
 
         const char* get_executable_path();
         const char* get_working_path();

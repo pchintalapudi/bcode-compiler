@@ -50,6 +50,27 @@ namespace
         logger.builder(logging::level::debug) << "Normalized class file root = " << lpcstr << logging::logbuilder::end;
         return lpcstr;
     }
+
+    bool prep_directories(const std::string &build_path, const std::string &path)
+    {
+        std::string lpcstr;
+        lpcstr.reserve(path.size());
+        lpcstr += build_path;
+        for (std::size_t i = build_path.size(); i < path.size(); i++)
+        {
+            lpcstr += path[i];
+            if (path[i] == '/' || path[i] == '\\')
+            {
+                logger.builder(logging::level::debug) << "Ensuring directory " << lpcstr << " exists" << logging::logbuilder::end;
+                if (not CreateDirectory(lpcstr.c_str(), NULL))
+                {
+                    logger.builder(logging::level::error) << "Failed to create directory " << lpcstr << " because " << GetLastErrorAsString() << logging::logbuilder::end;
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 } // namespace
 
 std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mapping(std::string name)
@@ -90,10 +111,15 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
 std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std::string name, std::size_t file_size, std::string build_path)
 {
     std::string lpcstr = ::normalize_file_name(name, build_path) + ".coops";
-    logger.builder(logging::level::debug) << "Opening output class file " << lpcstr << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "Opening output class file " << lpcstr << " with size " << file_size << logging::logbuilder::end;
+    if (!::prep_directories(build_path, lpcstr))
+    {
+        return {};
+    }
     if (void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL); file_handle != NULL)
     {
-        if (void *file_mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READWRITE, file_size & (~static_cast<std::size_t>(0) >> (CHAR_BIT * sizeof(DWORD))), file_size >> (CHAR_BIT * sizeof(DWORD)), lpcstr.c_str()); file_mapping_handle != NULL)
+        std::uint32_t low = file_size & (~static_cast<std::size_t>(0) >> (CHAR_BIT * sizeof(DWORD))), high = file_size >> (CHAR_BIT * sizeof(DWORD));
+        if (void *file_mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READWRITE, high, low, lpcstr.c_str()); file_mapping_handle != NULL)
         {
             if (void *mmap_handle = MapViewOfFile(file_mapping_handle, FILE_MAP_WRITE, 0, 0, 0); mmap_handle != NULL)
             {
@@ -118,11 +144,27 @@ std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std
     return {};
 }
 
-void oops_bcode_compiler::platform::close_file_mapping(file_mapping fm)
+void oops_bcode_compiler::platform::close_file_mapping(file_mapping fm, bool flush)
 {
-    UnmapViewOfFile(fm.mmapped_file);
-    CloseHandle(fm._file_map_handle);
-    CloseHandle(fm._file_handle);
+    if (flush)
+    {
+        if (not FlushViewOfFile(fm.mmapped_file, fm.file_size))
+        {
+            logger.builder(logging::level::error) << "Failed to flush file view to disk because " << GetLastErrorAsString() << logging::logbuilder::end;
+        }
+    }
+    if (not UnmapViewOfFile(fm.mmapped_file))
+    {
+        logger.builder(logging::level::error) << "Failed to unmap file view because " << GetLastErrorAsString() << logging::logbuilder::end;
+    }
+    if (not CloseHandle(fm._file_map_handle))
+    {
+        logger.builder(logging::level::error) << "Failed to close file mapping handle because " << GetLastErrorAsString() << logging::logbuilder::end;
+    }
+    if (not CloseHandle(fm._file_handle))
+    {
+        logger.builder(logging::level::error) << "Failed to close file handle because " << GetLastErrorAsString() << logging::logbuilder::end;
+    }
 }
 
 const char *oops_bcode_compiler::platform::get_working_path()

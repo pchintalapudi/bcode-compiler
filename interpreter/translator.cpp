@@ -68,15 +68,21 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
         }
     }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
+    logger.builder(logging::level::debug) << "classes_offset " << classes_offset << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "methods_offset " << methods_offset << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "statics_offset " << statics_offset << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "instances_offset " << instances_offset << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "bytecode_offset " << bytecode_offset << logging::logbuilder::end;
+    logger.builder(logging::level::debug) << "string_offset " << string_offset << logging::logbuilder::end;
     std::uint64_t cls_size = string_offset + string_pool_size(cls);
     if (auto maybe_cls = platform::create_class_file(cls.imports[6].name, cls_size, build_path))
     {
         utils::pun_write(maybe_cls->mmapped_file, classes_offset);
-        utils::pun_write(maybe_cls->mmapped_file, methods_offset);
-        utils::pun_write(maybe_cls->mmapped_file, statics_offset);
-        utils::pun_write(maybe_cls->mmapped_file, instances_offset);
-        utils::pun_write(maybe_cls->mmapped_file, bytecode_offset);
-        utils::pun_write(maybe_cls->mmapped_file, string_offset);
+        utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t), methods_offset);
+        utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 2, statics_offset);
+        utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 3, instances_offset);
+        utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 4, bytecode_offset);
+        utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 5, string_offset);
         char *base_head = maybe_cls->mmapped_file + classes_offset;
         utils::pun_write<std::uint32_t>(base_head, cls.imports.size());
         utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), cls.implement_count);
@@ -89,6 +95,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             {
                 error_builder << "Import " << imp->name << " was imported twice at line " << imp->line_number << " and column " << imp->column_number;
                 errors.push_back(error_builder.str());
+                logger.debug(error_builder.str());
                 error_builder.clear();
                 continue;
             }
@@ -114,6 +121,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             {
                 error_builder << "Unable to find method import class" << method->host_name << "!";
                 errors.push_back(error_builder.str());
+                logger.debug(error_builder.str());
                 error_builder.clear();
                 continue;
             }
@@ -136,6 +144,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             {
                 error_builder << "Unable to find static variable import " << svar->host_name << "!";
                 errors.push_back(error_builder.str());
+                logger.debug(error_builder.str());
                 error_builder.clear();
                 continue;
             }
@@ -158,6 +167,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             {
                 error_builder << "Unable to find instance variable import " << ivar->host_name << "!";
                 errors.push_back(error_builder.str());
+                logger.debug(error_builder.str());
                 error_builder.clear();
                 continue;
             }
@@ -183,6 +193,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -196,6 +207,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -204,6 +216,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find method name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -217,6 +230,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -225,6 +239,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find instance variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -238,6 +253,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find class name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -246,6 +262,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     {
                         error_builder << "Unable to find static variable name " << thunk.name << " for compiled instruction " << thunk.instruction_idx << " in method " << method.name;
                         errors.push_back(error_builder.str());
+                        logger.debug(error_builder.str());
                         error_builder.clear();
                         continue;
                     }
@@ -301,8 +318,8 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                 base_head += skip;
             }
         }
-        platform::close_file_mapping(*maybe_cls);
-        return {};
+        platform::close_file_mapping(*maybe_cls, true);
+        return errors;
     }
     return {"Unable to open file mapping!"};
 }
