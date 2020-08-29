@@ -62,7 +62,7 @@ namespace
             if (path[i] == '/' || path[i] == '\\')
             {
                 logger.builder(logging::level::debug) << "Ensuring directory " << lpcstr << " exists" << logging::logbuilder::end;
-                if (not CreateDirectory(lpcstr.c_str(), NULL))
+                if (not CreateDirectory(lpcstr.c_str(), NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
                 {
                     logger.builder(logging::level::error) << "Failed to create directory " << lpcstr << " because " << GetLastErrorAsString() << logging::logbuilder::end;
                     return false;

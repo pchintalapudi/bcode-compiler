@@ -17,13 +17,18 @@ using namespace oops_bcode_compiler::debug;
 
 namespace
 {
+
+    std::size_t round_off(std::size_t in, std::size_t align = sizeof(std::uint32_t))
+    {
+        return (in + align - 1) & ~(align - 1);
+    }
     std::uint64_t string_pool_size(oops_bcode_compiler::parsing::cls &cls)
     {
         std::uint64_t size = 0;
-        size += std::accumulate(cls.imports.begin() + 6, cls.imports.end(), static_cast<std::size_t>(0), [](std::size_t sum, const auto &imp) { return sum + imp.name.length() + sizeof(std::uint32_t); });
-        size += std::accumulate(cls.methods.begin(), cls.methods.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::method &mtd) { return sum + mtd.name.length() + sizeof(std::uint32_t); });
-        size += std::accumulate(cls.static_variables.begin(), cls.static_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &svar) { return sum + svar.name.length() + sizeof(std::uint32_t); });
-        size += std::accumulate(cls.instance_variables.begin(), cls.instance_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &ivar) { return sum + ivar.name.length() + sizeof(std::uint32_t); });
+        size += std::accumulate(cls.imports.begin() + 6, cls.imports.end(), static_cast<std::size_t>(0), [](std::size_t sum, const auto &imp) { return sum + ::round_off(imp.name.length() + sizeof(std::uint32_t)); });
+        size += std::accumulate(cls.methods.begin(), cls.methods.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::method &mtd) { return sum + ::round_off(mtd.name.length() + sizeof(std::uint32_t) * 2); });
+        size += std::accumulate(cls.static_variables.begin(), cls.static_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &svar) { return sum + ::round_off(svar.name.length() + sizeof(std::uint32_t) * 2); });
+        size += std::accumulate(cls.instance_variables.begin(), cls.instance_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &ivar) { return sum + ::round_off(ivar.name.length() + sizeof(std::uint32_t) * 2); });
         return size;
     }
 
@@ -49,7 +54,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
     std::stringstream error_builder;
     std::uint64_t classes_offset, methods_offset, statics_offset, instances_offset, bytecode_offset, string_offset;
     classes_offset = 6 * sizeof(std::uint64_t);
-    methods_offset = classes_offset + sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t) * cls.imports.size();
+    methods_offset = classes_offset + sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t) * (cls.imports.size() - 6);
     statics_offset = methods_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.methods.size();
     instances_offset = statics_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.static_variables.size();
     bytecode_offset = instances_offset + sizeof(std::uint32_t) * 2 + (sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t)) * cls.instance_variables.size();
@@ -84,9 +89,9 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
         utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 4, bytecode_offset);
         utils::pun_write(maybe_cls->mmapped_file + sizeof(std::uint64_t) * 5, string_offset);
         char *base_head = maybe_cls->mmapped_file + classes_offset;
-        utils::pun_write<std::uint32_t>(base_head, cls.imports.size());
+        utils::pun_write<std::uint32_t>(base_head, cls.imports.size() - 6);
         utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), cls.implement_count);
-        base_head += sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t) * 6;
+        base_head += sizeof(std::uint32_t) * 2;
         std::uint64_t current_string_offset = string_offset;
         std::unordered_map<std::string, std::uint32_t> class_indexes = {{"char", 0}, {"short", 1}, {"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
         for (auto imp = cls.imports.begin() + 6; imp != cls.imports.end(); ++imp)
@@ -101,10 +106,13 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             }
             class_indexes[imp->name] = imp - cls.imports.begin();
             utils::pun_write(base_head, current_string_offset);
+            logger.builder(logging::level::debug) << "Import name: " << imp->name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head: " << static_cast<std::uintptr_t>(base_head - maybe_cls->mmapped_file) << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Current string offset: " << current_string_offset << logging::logbuilder::end;
             base_head += sizeof(current_string_offset);
             utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(imp->name.size()));
             std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, imp->name.c_str(), imp->name.size());
-            current_string_offset += imp->name.size() + sizeof(std::uint32_t);
+            current_string_offset += ::round_off(imp->name.size() + sizeof(std::uint32_t));
         }
         utils::pun_write<std::uint32_t>(base_head, cls.methods.size());
         utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), cls.static_method_count);
@@ -127,11 +135,18 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
+            logger.builder(logging::level::debug) << "Method name: " << method->name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Method host: " << method->host_name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head: " << static_cast<std::uintptr_t>(base_head - maybe_cls->mmapped_file) << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Current string offset: " << current_string_offset << logging::logbuilder::end;
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
             utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(method->name.size()));
             std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, method->name.c_str(), method->name.size());
-            current_string_offset += method->name.size() + sizeof(std::uint32_t);
+            current_string_offset += ::round_off(method->name.size() + sizeof(std::uint32_t));
         }
+        utils::pun_write<std::uint32_t>(base_head, cls.static_variables.size());
+        utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
+        base_head += sizeof(std::uint32_t) * 2;
         std::unordered_map<std::pair<std::string, std::uint32_t>, std::uint32_t, utils::container_hasher<std::pair>> static_indexes;
         for (auto svar = cls.static_variables.begin(); svar != cls.static_variables.end(); ++svar)
         {
@@ -150,11 +165,18 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
             }
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
+            logger.builder(logging::level::debug) << "Static name: " << svar->name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Static host: " << svar->host_name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head: " << static_cast<std::uintptr_t>(base_head - maybe_cls->mmapped_file) << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Current string offset: " << current_string_offset << logging::logbuilder::end;
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
             utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(svar->name.size()));
             std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, svar->name.c_str(), svar->name.size());
-            current_string_offset += svar->name.size() + sizeof(std::uint32_t);
+            current_string_offset += ::round_off(svar->name.size() + sizeof(std::uint32_t));
         }
+        utils::pun_write<std::uint32_t>(base_head, cls.instance_variables.size());
+        utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
+        base_head += sizeof(std::uint32_t) * 2;
         std::unordered_map<std::pair<std::string, std::uint32_t>, std::uint32_t, utils::container_hasher<std::pair>> instance_indexes;
         for (auto ivar = cls.instance_variables.begin(); ivar != cls.instance_variables.end(); ++ivar)
         {
@@ -171,17 +193,23 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                 error_builder.clear();
                 continue;
             }
+            logger.builder(logging::level::debug) << "Instance name: " << ivar->name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Instance host: " << ivar->host_name << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head: " << static_cast<std::uintptr_t>(base_head - maybe_cls->mmapped_file) << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Current string offset: " << current_string_offset << logging::logbuilder::end;
             utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), 0);
             utils::pun_write(base_head + sizeof(std::uint32_t) * 2, current_string_offset);
             base_head += sizeof(std::uint32_t) * 2 + sizeof(current_string_offset);
             utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(ivar->name.size()));
             std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, ivar->name.c_str(), ivar->name.size());
-            current_string_offset += ivar->name.size() + sizeof(std::uint32_t);
+            current_string_offset += ::round_off(ivar->name.size() + sizeof(std::uint32_t));
         }
         utils::pun_write(base_head, string_offset - bytecode_offset);
         base_head += sizeof(std::uint64_t);
         for (auto &method : compiled_methods)
         {
+            logger.builder(logging::level::debug) << "Writing " << method.name << " size " << method.size << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
             for (auto &thunk : method.thunks)
             {
                 switch (thunk.type)
@@ -270,53 +298,71 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
                     break;
                 }
                 }
-                utils::pun_write<std::uint64_t>(base_head, method.size);
-                base_head += sizeof(std::uint64_t);
-                utils::pun_write<std::uint16_t>(base_head, method.instructions.size());
-                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t), method.stack_size);
-                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 2, method.return_type | method.method_type << 4);
-                utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 3, method.arg_types.size());
-                base_head += sizeof(std::uint16_t) * 4;
-                std::uint8_t builder = 0;
-                bool built = true;
-                for (auto arg_type : method.arg_types)
-                {
-                    builder >>= 4;
-                    builder |= arg_type << 4;
-                    if ((built = !built))
-                    {
-                        utils::pun_write(base_head, builder);
-                        base_head += sizeof(builder);
-                        builder = 0;
-                    }
-                }
-                if (!built)
-                {
-                    builder >>= 4;
-                    utils::pun_write(base_head, builder);
-                    base_head += sizeof(builder);
-                }
-                std::size_t skip = (method.arg_types.size() + 1) / 2;
-                skip = (sizeof(std::uint64_t) - skip % sizeof(std::uint64_t)) % sizeof(std::uint64_t);
-                base_head += skip;
-                for (auto instruction : method.instructions)
-                {
-                    utils::pun_write(base_head, instruction);
-                    base_head += sizeof(instruction);
-                }
-                utils::pun_write<std::uintptr_t>(base_head, 0);
-                base_head += sizeof(std::uintptr_t);
-                utils::pun_write<std::uint16_t>(base_head, method.handle_map.size());
-                base_head += sizeof(std::uint16_t);
-                for (auto handle : method.handle_map)
-                {
-                    utils::pun_write(base_head, handle);
-                    base_head += sizeof(handle);
-                }
-                skip = (method.handle_map.size() + 1) * sizeof(std::uint16_t);
-                skip = (sizeof(std::uint64_t) - skip % sizeof(std::uint64_t)) % sizeof(std::uint64_t);
-                base_head += skip;
             }
+            logger.builder(logging::level::debug) << "Dethunking complete" << logging::logbuilder::end;
+            utils::pun_write<std::uint64_t>(base_head, method.size);
+            base_head += sizeof(std::uint64_t);
+            logger.builder(logging::level::debug) << "Method size complete" << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+            utils::pun_write<std::uint16_t>(base_head, method.instructions.size());
+            utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t), method.stack_size);
+            utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 2, method.return_type | method.method_type << 4);
+            utils::pun_write<std::uint16_t>(base_head + sizeof(std::uint16_t) * 3, method.arg_types.size());
+            base_head += sizeof(std::uint16_t) * 4;
+            logger.builder(logging::level::debug) << "Method meta complete" << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+            std::uint64_t arg_builder = 0;
+            logger.builder(logging::level::debug) << "Arg types count " << method.arg_types.size() << logging::logbuilder::end;
+            for (std::size_t i = 0; i < method.arg_types.size(); i++)
+            {
+                auto mod = i % (sizeof(std::uint64_t) / 4 * CHAR_BIT);
+                logger.builder(logging::level::debug) << "mod " << mod << logging::logbuilder::end;
+                logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+                arg_builder |= static_cast<std::uint64_t>(method.arg_types[i]) << (mod * 4);
+                if (mod == sizeof(std::uint64_t) / 4 * CHAR_BIT - 1)
+                {
+                    utils::pun_write(base_head, arg_builder);
+                    base_head += sizeof(arg_builder);
+                    arg_builder = 0;
+                }
+                logger.builder(logging::level::debug) << "i " << i << logging::logbuilder::end;
+                logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+            }
+            if (method.arg_types.size() % (sizeof(std::uint64_t) / 4 * CHAR_BIT))
+            {
+                utils::pun_write(base_head, arg_builder);
+                base_head += sizeof(arg_builder);
+                arg_builder = 0;
+            }
+            logger.builder(logging::level::debug) << "Argument building complete" << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+            for (auto instruction : method.instructions)
+            {
+                utils::pun_write(base_head, instruction);
+                base_head += sizeof(instruction);
+            }
+            logger.builder(logging::level::debug) << "Instruction copying complete" << logging::logbuilder::end;
+            logger.builder(logging::level::debug) << "Base head offset " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
+            utils::pun_write<std::uintptr_t>(base_head, 0);
+            base_head += sizeof(std::uintptr_t);
+            std::uint64_t handle_builder = method.handle_map.size();
+            for (std::size_t i = 0; i < method.handle_map.size(); i++)
+            {
+                auto mod = (i + 1) % (sizeof(std::uint64_t) / sizeof(std::uint16_t));
+                handle_builder |= static_cast<std::uint64_t>(method.handle_map[i]) << (mod * sizeof(std::uint16_t) * CHAR_BIT);
+                if (mod == sizeof(std::uint64_t) / sizeof(std::uint16_t) - 1)
+                {
+                    utils::pun_write(base_head, handle_builder);
+                    base_head += sizeof(handle_builder);
+                    handle_builder = 0;
+                }
+            }
+            if ((method.handle_map.size() + 1) % (sizeof(std::uint64_t) / sizeof(std::uint16_t)))
+            {
+                utils::pun_write(base_head, handle_builder);
+                base_head += sizeof(handle_builder);
+            }
+            logger.builder(logging::level::debug) << "Final base_head offset: " << base_head - maybe_cls->mmapped_file << logging::logbuilder::end;
         }
         platform::close_file_mapping(*maybe_cls, true);
         return errors;

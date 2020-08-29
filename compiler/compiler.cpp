@@ -469,6 +469,11 @@ namespace
     {
         return src * 16 + dest;
     }
+
+    std::size_t round_off(std::size_t in, std::size_t align)
+    {
+        return (in + align - 1) & ~(align - 1);
+    }
 } // namespace
 
 constexpr static std::uint8_t static_method_type = 5, virtual_method_type = 4;
@@ -537,13 +542,13 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
     std::unordered_map<std::string, std::uint16_t> labels;
 #pragma region
 
-#define lookup_variable(name, off)                                                                                                                                                                                                                                                                                                                           \
-    auto name##_it = local_variables.find(instr.operands[off]);                                                                                                                                                                                                                                                                                              \
-    if (name##_it == local_variables.end())                                                                                                                                                                                                                                                                                                                  \
-    {                                                                                                                                                                                                                                                                                                                                                        \
-        compile_error("Undefined local variable " << instr.operands[off], instr.line_number, instr.column_number);                                                                                                                                                                                                                                           \
-        continue;                                                                                                                                                                                                                                                                                                                                            \
-    }                                                                                                                                                                                                                                                                                                                                                        \
+#define lookup_variable(name, off)                                                                                                                                                                                                                                                                                                                                                          \
+    auto name##_it = local_variables.find(instr.operands[off]);                                                                                                                                                                                                                                                                                                                             \
+    if (name##_it == local_variables.end())                                                                                                                                                                                                                                                                                                                                                 \
+    {                                                                                                                                                                                                                                                                                                                                                                                       \
+        compile_error("Undefined local variable " << instr.operands[off], instr.line_number, instr.column_number);                                                                                                                                                                                                                                                                          \
+        continue;                                                                                                                                                                                                                                                                                                                                                                           \
+    }                                                                                                                                                                                                                                                                                                                                                                                       \
     logger.builder(logging::level::debug) << "Stack offset of " #name " " << instr.operands[off] << " (argument " << std::to_string(static_cast<int>(off)) << ") is " << name##_it->second.offset << " and has type " << name##_it->second.type << " (Source line & col " << instr.line_number << ", " << instr.column_number << "), called from " << __LINE__ << logging::logbuilder::end; \
     auto name = name##_it->second
 #pragma endregion
@@ -1467,6 +1472,11 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         }
         }
     }
-    mtd.size = sizeof(char *) + sizeof(std::uint16_t) * 4 + (mtd.arg_types.size() + sizeof(std::uint64_t) / 4 - 1) / (sizeof(std::uint64_t) / 4) + mtd.instructions.size() + sizeof(char *) + sizeof(std::uint16_t) * (mtd.handle_map.size() + 1);
+    mtd.size = sizeof(char *);
+    mtd.size += sizeof(std::uint16_t) * 4;
+    mtd.size += ::round_off(mtd.arg_types.size(), CHAR_BIT * sizeof(std::uint64_t) / 4) / (sizeof(std::uint64_t) * CHAR_BIT / 4) * sizeof(std::uint64_t);
+    mtd.size += mtd.instructions.size() * sizeof(std::uint64_t);
+    mtd.size += sizeof(char *);
+    mtd.size += ::round_off(mtd.handle_map.size() + 1, sizeof(std::uint64_t) / sizeof(std::uint16_t)) / (sizeof(std::uint64_t) / sizeof(std::uint16_t)) * sizeof(std::uint64_t);
     return mtd;
 }
