@@ -15,6 +15,7 @@ namespace
         std::string lpcstr;
         lpcstr.reserve(name.length() + build_path.length() + 1);
         lpcstr += build_path;
+        std::cout << "Class name = " << name << std::endl;
         for (auto c : name) {
             lpcstr += c == '.' ? '/' : c;
         }
@@ -61,6 +62,7 @@ std::optional<file_mapping> oops_bcode_compiler::platform::open_class_file_mappi
 std::optional<file_mapping> oops_bcode_compiler::platform::create_class_file(std::string name, std::size_t file_size, std::string build_path)
 {
     std::string lpcstr = ::normalize_file_name(name, build_path) + ".coops";
+    std::cout << "Trying to write to " << lpcstr << std::endl;
     if (void *file_handle = CreateFile(lpcstr.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL); file_handle != NULL)
     {
         if (void *file_mapping_handle = CreateFileMapping(file_handle, NULL, PAGE_READWRITE, file_size & (~static_cast<std::size_t>(0) >> (CHAR_BIT * sizeof(DWORD))), file_size >> (CHAR_BIT * sizeof(DWORD)), lpcstr.c_str()); file_mapping_handle != NULL)

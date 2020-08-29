@@ -22,7 +22,7 @@ namespace oops_bcode_compiler
                 std::size_t line_number;
                 std::size_t column_number;
             };
-            std::vector<std::string> imports;
+            std::vector<cls_import> imports;
             struct variable
             {
                 std::string host_name;

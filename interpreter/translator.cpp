@@ -18,7 +18,7 @@ namespace
     std::uint64_t string_pool_size(oops_bcode_compiler::parsing::cls &cls)
     {
         std::uint64_t size = 0;
-        size += std::accumulate(cls.imports.begin() + 6, cls.imports.end(), static_cast<std::size_t>(0), [](std::size_t sum, const std::string &name) { return sum + name.length() + sizeof(std::uint32_t); });
+        size += std::accumulate(cls.imports.begin() + 6, cls.imports.end(), static_cast<std::size_t>(0), [](std::size_t sum, const auto &imp) { return sum + imp.name.length() + sizeof(std::uint32_t); });
         size += std::accumulate(cls.methods.begin(), cls.methods.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::method &mtd) { return sum + mtd.name.length() + sizeof(std::uint32_t); });
         size += std::accumulate(cls.static_variables.begin(), cls.static_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &svar) { return sum + svar.name.length() + sizeof(std::uint32_t); });
         size += std::accumulate(cls.instance_variables.begin(), cls.instance_variables.end(), static_cast<std::size_t>(0), [](std::size_t sum, const oops_bcode_compiler::parsing::cls::variable &ivar) { return sum + ivar.name.length() + sizeof(std::uint32_t); });
@@ -67,7 +67,7 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
     }
     string_offset = bytecode_offset + sizeof(std::uint64_t) + std::accumulate(compiled_methods.begin(), compiled_methods.end(), static_cast<std::uint64_t>(0), [](auto sum, auto method) { return sum + method.size; });
     std::uint64_t cls_size = string_offset + string_pool_size(cls);
-    if (auto maybe_cls = platform::create_class_file(cls.imports[6], cls_size, build_path))
+    if (auto maybe_cls = platform::create_class_file(cls.imports[6].name, cls_size, build_path))
     {
         utils::pun_write(maybe_cls->mmapped_file, classes_offset);
         utils::pun_write(maybe_cls->mmapped_file, methods_offset);
@@ -83,19 +83,19 @@ std::vector<std::string> oops_bcode_compiler::transformer::write(oops_bcode_comp
         std::unordered_map<std::string, std::uint32_t> class_indexes = {{"char", 0}, {"short", 1}, {"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}};
         for (auto imp = cls.imports.begin() + 6; imp != cls.imports.end(); ++imp)
         {
-            if (class_indexes.find(*imp) != class_indexes.end())
+            if (class_indexes.find(imp->name) != class_indexes.end())
             {
-                error_builder << "Import " << *imp << " was imported twice!";
+                error_builder << "Import " << imp->name << " was imported twice at line " << imp->line_number << " and column " << imp->column_number;
                 errors.push_back(error_builder.str());
                 error_builder.clear();
                 continue;
             }
-            class_indexes[*imp] = imp - cls.imports.begin();
+            class_indexes[imp->name] = imp - cls.imports.begin();
             utils::pun_write(base_head, current_string_offset);
             base_head += sizeof(current_string_offset);
-            utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(imp->size()));
-            std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, imp->c_str(), imp->size());
-            current_string_offset += imp->size() + sizeof(std::uint32_t);
+            utils::pun_write(maybe_cls->mmapped_file + current_string_offset, static_cast<std::uint32_t>(imp->name.size()));
+            std::memcpy(maybe_cls->mmapped_file + sizeof(std::uint32_t) + current_string_offset, imp->name.c_str(), imp->name.size());
+            current_string_offset += imp->name.size() + sizeof(std::uint32_t);
         }
         utils::pun_write<std::uint32_t>(base_head, cls.methods.size());
         utils::pun_write<std::uint32_t>(base_head + sizeof(std::uint32_t), cls.static_method_count);

@@ -32,19 +32,20 @@ namespace
                 {
                     if (!next.token.empty())
                     {
-                        tokens.push_back(std::move(next));
+                        tokens.push_back(next);
                         next.token.clear();
                     }
                     if (c == '\n')
                     {
                         line_number++;
+                        column_number = 0;
                     }
                 }
                 else if (c == ';')
                 {
                     if (!next.token.empty())
                     {
-                        tokens.push_back(std::move(next));
+                        tokens.push_back(next);
                         next.token.clear();
                     }
                     skip = true;
@@ -62,18 +63,32 @@ namespace
             else
             {
                 skip = (c != '\n');
-                line_number += !skip;
+                if (!skip)
+                {
+                    line_number++;
+                    column_number = 0;
+                }
             }
         }
         if (!next.token.empty())
         {
-            tokens.push_back(std::move(next));
+            tokens.push_back(next);
         }
+        for (auto &token : tokens)
+        {
+            std::cout << "Lexed token " << token.token << " at line " << token.line_number << " and column " << token.column_number << "\n";
+        }
+        std::cout << std::endl;
         return tokens;
     }
 
     std::string parse(std::vector<token> &line, bool &in_proc, oops_bcode_compiler::parsing::cls &cls)
     {
+        for (auto &token : line)
+        {
+            std::cout << "Parsing token " << token.token << " from line " << token.line_number << " and column " << token.column_number << "\n";
+        }
+        std::cout << std::endl;
 #define parse_error(error, line_number, column_number)                                                                \
     std::stringstream error_builder;                                                                                  \
     error_builder << "Parsing error: \"" << error << "\" at line " << line_number << " and column " << column_number; \
@@ -124,7 +139,8 @@ namespace
                     {
                         parse_error("Class name must be the first import!", line[0].line_number, line[0].column_number);
                     }
-                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
+                    std::cout << "CLZ was " << line[1].token << "\n";
+                    cls.imports.push_back({line[1].token, line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(EXT)
@@ -135,7 +151,7 @@ namespace
                         parse_error("Superclass must be the second import!", line[0].line_number, line[0].column_number);
                     }
                     cls.implement_count++;
-                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
+                    cls.imports.push_back({line[1].token, line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(IMPL)
@@ -146,7 +162,7 @@ namespace
                         parse_error("All superinterfaces must come before any other imports!", line[0].line_number, line[0].column_number);
                     }
                     cls.implement_count++;
-                    cls.imports.push_back({std::move(line[1].token), line[1].line_number, line[1].column_number});
+                    cls.imports.push_back({line[1].token, line[1].line_number, line[1].column_number});
                     break;
                 }
                 check_out_proc(IMP)
@@ -161,7 +177,11 @@ namespace
                     {
                     case oops_bcode_compiler::keywords::keyword::CLZ:
                     {
-                        cls.imports.push_back({std::move(line[2].token), line[2].line_number, line[2].column_number});
+                        for (auto &imp : cls.imports)
+                        {
+                            std::cout << "Previous import " << imp.name << "\n";
+                        }
+                        cls.imports.push_back({line[2].token, line[2].line_number, line[2].column_number});
                         break;
                     }
                     case oops_bcode_compiler::keywords::keyword::PROC:
@@ -190,15 +210,15 @@ namespace
                 check_out_proc(IVAR)
                 {
                     require_args(3);
-                    cls.instance_variables.push_back({cls.imports[6], line[2].token, line[2].line_number, line[2].column_number});
-                    cls.self_instances.push_back({std::move(line[1].token), std::move(line[2].token), line[2].line_number, line[2].column_number});
+                    cls.instance_variables.push_back({cls.imports[6].name, line[2].token, line[2].line_number, line[2].column_number});
+                    cls.self_instances.push_back({line[1].token, line[2].token, line[2].line_number, line[2].column_number});
                     break;
                 }
                 check_out_proc(SVAR)
                 {
                     require_args(3);
-                    cls.static_variables.push_back({cls.imports[6], line[2].token, line[2].line_number, line[2].column_number});
-                    cls.self_statics.push_back({std::move(line[1].token), std::move(line[2].token), line[2].line_number, line[2].column_number});
+                    cls.static_variables.push_back({cls.imports[6].name, line[2].token, line[2].line_number, line[2].column_number});
+                    cls.self_statics.push_back({line[1].token, line[2].token, line[2].line_number, line[2].column_number});
                     break;
                 }
                 check_out_proc(PROC)
@@ -208,11 +228,13 @@ namespace
                     if (line[1].token == "static")
                     {
                         require_min_args(4);
+                        cls.methods.push_back({cls.imports[6].name, line[3].token, line[3].line_number, line[3].column_number});
                         cls.self_methods.push_back({line[3].token, line[2].token, {}, {}, line[3].line_number, line[3].column_number, true});
                         begin = 4;
                     }
                     else
                     {
+                        cls.methods.push_back({cls.imports[6].name, line[2].token, line[2].line_number, line[2].column_number});
                         cls.self_methods.push_back({line[2].token, line[1].token, {}, {}, line[2].line_number, line[2].column_number, false});
                         begin = 3;
                     }
@@ -226,7 +248,7 @@ namespace
                         cls.self_methods.back().parameters.reserve((line.size() - begin) / 2);
                         do
                         {
-                            cls.self_methods.back().parameters.push_back({std::move(line[begin].token), std::move(line[begin + 1].token), line[begin].line_number, line[begin].column_number});
+                            cls.self_methods.back().parameters.push_back({line[begin].token, line[begin + 1].token, line[begin].line_number, line[begin].column_number});
                             if (auto &argname = cls.self_methods.back().parameters.back().name; argname.back() == ',')
                             {
                                 argname.pop_back();
@@ -288,7 +310,7 @@ namespace
                 check_in_proc(ANEW)
                 {
                     require_args(4);
-                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token), std::move(line[2].token), std::move(line[3].token)}, line[0].line_number, line[0].column_number, keyword->second});
+                    cls.self_methods.back().instructions.push_back({{line[1].token, line[2].token, line[3].token}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
             case kw::CSTLD:
@@ -304,7 +326,7 @@ namespace
                 check_in_proc(DEF)
                 {
                     require_args(3);
-                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token), std::move(line[2].token)}, line[0].line_number, line[0].column_number, keyword->second});
+                    cls.self_methods.back().instructions.push_back({{line[1].token, line[2].token}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
             case kw::VINV:
@@ -313,7 +335,7 @@ namespace
                     require_min_args(4);
                     std::vector<std::string> args;
                     std::transform(line.begin() + 1, line.end(), std::back_inserter(args), [](::token &tkn) { return tkn.token; });
-                    cls.self_methods.back().instructions.push_back({std::move(args), line[0].line_number, line[0].column_number, keyword->second});
+                    cls.self_methods.back().instructions.push_back({args, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
                 check_in_proc(SINV)
@@ -321,7 +343,7 @@ namespace
                     require_min_args(3);
                     std::vector<std::string> args;
                     std::transform(line.begin() + 1, line.end(), std::back_inserter(args), [](::token &tkn) { return tkn.token; });
-                    cls.self_methods.back().instructions.push_back({std::move(args), line[0].line_number, line[0].column_number, keyword->second});
+                    cls.self_methods.back().instructions.push_back({args, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
             case kw::RET:
@@ -329,7 +351,7 @@ namespace
                 check_in_proc(BU)
                 {
                     require_args(2);
-                    cls.self_methods.back().instructions.push_back({{std::move(line[1].token)}, line[0].line_number, line[0].column_number, keyword->second});
+                    cls.self_methods.back().instructions.push_back({{line[1].token}, line[0].line_number, line[0].column_number, keyword->second});
                     break;
                 }
                 check_in_proc(NOP)
@@ -364,7 +386,7 @@ std::optional<std::variant<cls, std::vector<std::string>>> oops_bcode_compiler::
     cls ret;
     for (auto imp : {"char", "short", "int", "long", "float", "double"})
     {
-        ret.imports.emplace_back(imp);
+        ret.imports.push_back({imp, ~0ull, ~0ull});
     }
     ret.implement_count = ret.static_method_count = 0;
     char *current = mapping->mmapped_file, *end = current + mapping->file_size;
@@ -377,17 +399,39 @@ std::optional<std::variant<cls, std::vector<std::string>>> oops_bcode_compiler::
         {
             if (auto error = ::parse(line, in_proc, ret); !error.empty())
             {
-                errors.push_back(std::move(error));
+                errors.push_back(error);
             }
             line.clear();
         }
-        line.push_back(std::move(token));
+        line.push_back(token);
     }
     if (!line.empty())
     {
         ::parse(line, in_proc, ret);
     }
     platform::close_file_mapping(*mapping);
+    for (auto &error : errors)
+    {
+        std::cerr << "Parsing error " << error << "\n";
+    }
+    std::cout << "Parsed " << ret.implement_count << " implemented classes\n";
+    for (auto &import : ret.imports)
+    {
+        std::cout << "Parsed import " << import.name << " at line " << import.line_number << " and column " << import.column_number << "\n";
+    }
+    for (auto &ivar : ret.instance_variables)
+    {
+        std::cout << "Parsed instance variable " << ivar.name << " of type " << ivar.host_name << " at line " << ivar.line_number << " and column " << ivar.column_number << "\n";
+    }
+    for (auto &svar : ret.static_variables)
+    {
+        std::cout << "Parsed instance variable " << svar.name << " of type " << svar.host_name << " at line " << svar.line_number << " and column " << svar.column_number << "\n";
+    }
+    for (auto &method : ret.methods)
+    {
+        std::cout << "Parsed method reference " << method.name << " from class " << method.host_name << " at line " << method.line_number << " and column " << method.column_number << std::endl;
+    }
+    std::cout << "Successfully parsed class " << ret.imports[6].name << std::endl;
     if (errors.empty())
     {
         return ret;

@@ -29,7 +29,8 @@ int compile_standalone(std::string class_file, std::string build_path)
     if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path); !failure.empty())
     {
         std::cerr << "Failed to fully write '" << class_file << "' due to errors:\n";
-        for (auto& fail : failure) {
+        for (auto &fail : failure)
+        {
             std::cerr << fail << "\n";
         }
         return 1;
@@ -68,20 +69,22 @@ int compile_with_imports(std::string seed, std::string build_path)
         }
         for (auto &imp : std::get<oops_bcode_compiler::parsing::cls>(*cls).imports)
         {
-            if (compiling.find(imp) == compiling.end())
+            if (compiling.find(imp.name) == compiling.end())
             {
-                to_compile.push(imp);
-                compiling.insert(imp);
+                to_compile.push(imp.name);
+                compiling.insert(imp.name);
             }
         }
         if (auto failure = oops_bcode_compiler::transformer::write(std::get<oops_bcode_compiler::parsing::cls>(*cls), build_path); !failure.empty())
         {
             std::cerr << "Failed to fully write '" << class_file << "' due to errors:\n";
-            for (auto& fail : failure) {
+            for (auto &fail : failure)
+            {
                 std::cout << fail << "\n";
             }
             continue;
         }
+        std::cout << "Successfully compiled class file " << class_file;
         successes.push_back(class_file);
     } while (!to_compile.empty());
     return file_count - successes.size();

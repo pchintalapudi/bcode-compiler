@@ -1458,5 +1458,6 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         }
         }
     }
+    mtd.size = sizeof(char *) + sizeof(std::uint16_t) * 4 + (mtd.arg_types.size() + sizeof(std::uint64_t) / 4 - 1) / (sizeof(std::uint64_t) / 4) + mtd.instructions.size() + sizeof(char *) + sizeof(std::uint16_t) * (mtd.handle_map.size() + 1);
     return mtd;
 }
