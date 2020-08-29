@@ -8,7 +8,7 @@ namespace oops_bcode_compiler
 {
     namespace debug
     {
-        class logger
+        class logging
         {
         public:
             enum class level
@@ -21,7 +21,7 @@ namespace oops_bcode_compiler
 
             struct logbuilder
             {
-                logger &out;
+                logging &out;
                 level lvl;
                 std::stringstream builder;
                 bool flushed = true;
@@ -76,11 +76,11 @@ namespace oops_bcode_compiler
 
             logbuilder builder(level lvl)
             {
-                return {*this, lvl};
+                return {*this, lvl, {}};
             }
         };
 
-        inline logger log;
+        inline logging logger;
     } // namespace debug
 } // namespace oops_bcode_compiler
 #endif /* DEBUG_LOGS */

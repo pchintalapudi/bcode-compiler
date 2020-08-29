@@ -78,7 +78,7 @@ namespace
         }
         for (auto &token : tokens)
         {
-            log.builder(logger::level::debug) << "Lexed token " << token.token << " at line " << token.line_number << " and column " << token.column_number << logger::logbuilder::end;
+            logger.builder(logging::level::debug) << "Lexed token " << token.token << " at line " << token.line_number << " and column " << token.column_number << logging::logbuilder::end;
         }
         return tokens;
     }
@@ -87,7 +87,7 @@ namespace
     {
         for (auto &token : line)
         {
-            log.builder(logger::level::debug) << "Parsing token " << token.token << " from line " << token.line_number << " and column " << token.column_number << logger::logbuilder::end;
+            logger.builder(logging::level::debug) << "Parsing token " << token.token << " from line " << token.line_number << " and column " << token.column_number << logging::logbuilder::end;
         }
 #define parse_error(error, line_number, column_number)                                                                \
     std::stringstream error_builder;                                                                                  \
@@ -401,26 +401,26 @@ std::optional<std::variant<cls, std::vector<std::string>>> oops_bcode_compiler::
     platform::close_file_mapping(*mapping);
     for (auto &error : errors)
     {
-        log.builder(logger::level::error) << "Parsing error " << error << logger::logbuilder::end;
+        logger.builder(logging::level::error) << "Parsing error " << error << logging::logbuilder::end;
     }
-    log.builder(logger::level::debug) << "Parsed " << ret.implement_count << " implemented classes" << logger::logbuilder::end;
+    logger.builder(logging::level::debug) << "Parsed " << ret.implement_count << " implemented classes" << logging::logbuilder::end;
     for (auto &import : ret.imports)
     {
-        log.builder(logger::level::debug) << "Parsed import " << import.name << " at line " << import.line_number << " and column " << import.column_number << logger::logbuilder::end;
+        logger.builder(logging::level::debug) << "Parsed import " << import.name << " at line " << import.line_number << " and column " << import.column_number << logging::logbuilder::end;
     }
     for (auto &ivar : ret.instance_variables)
     {
-        log.builder(logger::level::debug) << "Parsed instance variable " << ivar.name << " of type " << ivar.host_name << " at line " << ivar.line_number << " and column " << ivar.column_number << logger::logbuilder::end;
+        logger.builder(logging::level::debug) << "Parsed instance variable " << ivar.name << " of type " << ivar.host_name << " at line " << ivar.line_number << " and column " << ivar.column_number << logging::logbuilder::end;
     }
     for (auto &svar : ret.static_variables)
     {
-        log.builder(logger::level::debug) << "Parsed instance variable " << svar.name << " of type " << svar.host_name << " at line " << svar.line_number << " and column " << svar.column_number << logger::logbuilder::end;
+        logger.builder(logging::level::debug) << "Parsed instance variable " << svar.name << " of type " << svar.host_name << " at line " << svar.line_number << " and column " << svar.column_number << logging::logbuilder::end;
     }
     for (auto &method : ret.methods)
     {
-        log.builder(logger::level::debug) << "Parsed method reference " << method.name << " from class " << method.host_name << " at line " << method.line_number << " and column " << method.column_number << logger::logbuilder::end;
+        logger.builder(logging::level::debug) << "Parsed method reference " << method.name << " from class " << method.host_name << " at line " << method.line_number << " and column " << method.column_number << logging::logbuilder::end;
     }
-    log.builder(logger::level::debug) << "Successfully parsed class " << ret.imports[6].name << logger::logbuilder::end;
+    logger.builder(logging::level::debug) << "Successfully parsed class " << ret.imports[6].name << logging::logbuilder::end;
     if (errors.empty())
     {
         return ret;

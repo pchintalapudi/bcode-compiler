@@ -1,34 +1,37 @@
 #include "logs.h"
 
+#include <array>
 #include <iostream>
 
 using namespace oops_bcode_compiler::debug;
 
-void logger::log(logger::level lvl, const std::string &msg)
+const std::array<std::string, 4> levels = {"DEBUG", "INFO", "WARNING", "ERROR"};
+
+void logging::log(logging::level lvl, const std::string &msg)
 {
     if (lvl >= this->output_level)
     {
         if (lvl == level::error)
         {
-            std::cerr << msg << "\n";
+            std::cerr << levels[static_cast<unsigned>(lvl)] << ": " << msg << "\n";
         }
         else
         {
-            std::cout << msg << std::endl;
+            std::cout << levels[static_cast<unsigned>(lvl)] << ": " << msg << std::endl;
         }
     }
 }
-void logger::log(logger::level lvl, const char *msg)
+void logging::log(logging::level lvl, const char *msg)
 {
     if (lvl >= this->output_level)
     {
         if (lvl == level::error)
         {
-            std::cerr << msg << "\n";
+            std::cerr << levels[static_cast<unsigned>(lvl)] << ": " << msg << "\n";
         }
         else
         {
-            std::cout << msg << std::endl;
+            std::cout << levels[static_cast<unsigned>(lvl)] << ": " << msg << std::endl;
         }
     }
 }

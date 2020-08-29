@@ -8,8 +8,10 @@
 #include "../instructions/keywords.h"
 #include "../utils/hashing.h"
 #include "../utils/puns.h"
+#include "../debug/logs.h"
 
 using namespace oops_bcode_compiler::compiler;
+using namespace oops_bcode_compiler::debug;
 
 namespace
 {
@@ -475,9 +477,10 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
 {
     static const std::unordered_map<std::string, std::uint8_t> type_map = {{"int", 2}, {"long", 3}, {"float", 4}, {"double", 5}, {"ref", 6}};
     std::vector<std::string> errors;
-#define compile_error(error, line, col)                                  \
-    std::stringstream error_builder;                                     \
-    error_builder << error << " at line " << line << ", column " << col; \
+#define compile_error(error, line, col)                                                  \
+    std::stringstream error_builder;                                                     \
+    error_builder << error << " at line " << line << ", column " << col;                 \
+    logger.builder(logging::level::debug) << error_builder.str() << logging::logbuilder::end; \
     errors.push_back(error_builder.str())
     method mtd;
     mtd.name = proc.name;
