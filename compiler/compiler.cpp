@@ -1298,7 +1298,7 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         {
             lookup_variable(dest, 0);
             require_type(6, dest, instr.operands[0]);
-            mtd.thunks.push_back({instr.operands[2], static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2], location::IMM24, thunk_type::CLASS});
+            mtd.thunks.push_back({instr.operands[1], static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1], location::IMM24, thunk_type::CLASS});
             mtd.instructions.push_back(::construct24(::itype::VNEW, dest.offset, 0, 0));
             break;
         }
