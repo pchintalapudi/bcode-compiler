@@ -252,11 +252,13 @@ namespace
             case kw::SUB:
             case kw::MUL:
             case kw::DIV:
+            case kw::MOD:
             case kw::DIVU:
             case kw::ADDI:
             case kw::SUBI:
             case kw::MULI:
             case kw::DIVI:
+            case kw::MODI:
             case kw::DIVUI:
             case kw::AND:
             case kw::OR:

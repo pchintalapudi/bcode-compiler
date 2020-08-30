@@ -933,6 +933,7 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         break;                                                                                                                                      \
     }
 #pragma endregion
+            ikey(MOD);
             ikey(DIVU);
             ikey(AND);
             ikey(OR);
@@ -962,6 +963,7 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         break;                                                                                                                                      \
     }
 #pragma endregion
+            ikeyi(MODI);
             ikeyi(DIVUI);
             ikeyi(ANDI);
             ikeyi(ORI);
