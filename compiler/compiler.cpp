@@ -1425,7 +1425,9 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         case ktype::SINV:
         {
             lookup_variable(dest, 0);
-            mtd.thunks.push_back({instr.operands[1].substr(instr.operands[1].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[1].substr(0, instr.operands[1].find_last_of('.')), location::IMM32, thunk_type::METHOD});
+            auto &name = instr.operands[1];
+            auto cls_split = name.find_last_of('.', name.find_first_of('('));
+            mtd.thunks.push_back({name.substr(cls_split + 1), static_cast<std::uint16_t>(mtd.instructions.size()), name.substr(0, cls_split), location::IMM32, thunk_type::METHOD});
             mtd.instructions.push_back(::construct32(::itype::SINV, 0, dest.offset, 0));
             load_args;
             break;
@@ -1434,7 +1436,9 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         {
             lookup_variable(dest, 0);
             lookup_variable(src1, 1);
-            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::METHOD});
+            auto &name = instr.operands[2];
+            auto cls_split = name.find_last_of('.', name.find_first_of('('));
+            mtd.thunks.push_back({name.substr(cls_split + 1), static_cast<std::uint16_t>(mtd.instructions.size()), name.substr(0, cls_split), location::IMM24, thunk_type::METHOD});
             mtd.instructions.push_back(::construct24(::itype::IINV, dest.offset, src1.offset, 0));
             load_args;
             break;
@@ -1443,7 +1447,9 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
         {
             lookup_variable(dest, 0);
             lookup_variable(src1, 1);
-            mtd.thunks.push_back({instr.operands[2].substr(instr.operands[2].find_last_of('.') + 1), static_cast<std::uint16_t>(mtd.instructions.size()), instr.operands[2].substr(0, instr.operands[2].find_last_of('.')), location::IMM24, thunk_type::METHOD});
+            auto &name = instr.operands[2];
+            auto cls_split = name.find_last_of('.', name.find_first_of('('));
+            mtd.thunks.push_back({name.substr(cls_split + 1), static_cast<std::uint16_t>(mtd.instructions.size()), name.substr(0, cls_split), location::IMM24, thunk_type::METHOD});
             mtd.instructions.push_back(::construct24(::itype::VINV, dest.offset, src1.offset, 0));
             load_args;
             break;
