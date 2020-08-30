@@ -41,6 +41,8 @@ namespace
         LDIV,
         FDIV,
         DDIV,
+        IMOD,
+        LMOD,
         IDIVU,
         LDIVU,
         IADDI,
@@ -59,6 +61,8 @@ namespace
         LDIVI,
         FDIVI,
         DDIVI,
+        IMODI,
+        LMODI,
         IDIVUI,
         LDIVUI,
         //TODO

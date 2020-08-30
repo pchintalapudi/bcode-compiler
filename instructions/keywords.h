@@ -17,11 +17,13 @@ namespace oops_bcode_compiler
             SUB,
             MUL,
             DIV,
+            MOD,
             DIVU,
             ADDI,
             SUBI,
             MULI,
             DIVI,
+            MODI,
             DIVUI,
             NEG,
             LI,
@@ -108,11 +110,13 @@ namespace oops_bcode_compiler
             stringize(SUB);
             stringize(MUL);
             stringize(DIV);
+            stringize(MOD);
             stringize(DIVU);
             stringize(ADDI);
             stringize(SUBI);
             stringize(MULI);
             stringize(DIVI);
+            stringize(MODI);
             stringize(DIVUI);
             stringize(NEG);
             stringize(LI);

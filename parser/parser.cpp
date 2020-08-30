@@ -175,7 +175,7 @@ namespace
                     }
                     case oops_bcode_compiler::keywords::keyword::PROC:
                     {
-                        std::size_t split_idx = line[2].token.find_last_of('.');
+                        std::size_t split_idx = line[2].token.find_last_of('.', line[2].token.find_first_of('('));
                         cls.methods.push_back({line[2].token.substr(0, split_idx), line[2].token.substr(split_idx + 1), line[2].line_number, line[2].column_number});
                         break;
                     }
