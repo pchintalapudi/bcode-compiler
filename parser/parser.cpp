@@ -312,6 +312,7 @@ namespace
             case kw::STSR:
             case kw::LI:
             case kw::CST:
+            case kw::RCVT:
             case kw::ALEN:
             case kw::VNEW:
                 check_in_proc(DEF)

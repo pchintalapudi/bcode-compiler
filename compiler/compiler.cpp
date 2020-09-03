@@ -1058,6 +1058,22 @@ std::variant<method, std::vector<std::string>> oops_bcode_compiler::compiler::co
             }
             break;
         }
+        case ktype::RCVT:
+        {
+            lookup_variable(dest, 0);
+            lookup_variable(src1, 1);
+            if (std::abs(static_cast<int8_t>(src1.type - dest.type)) == 2) {
+                if (src1.type == 6 or dest.type == 6) {
+                    compile_error("Object references cannot be operated on as bits!", instr.line_number, instr.column_number);
+                    continue;
+                }
+                mtd.instructions.push_back(::construct24(src1.type % 2 ? ::itype::LORI : ::itype::IORI, dest.offset, src1.offset, 0));
+            } else {
+                compile_error("Cannot perform raw bit conversion from type " << src1.type << " to " << dest.type, instr.line_number, instr.column_number);
+                continue;
+            }
+            break;
+        }
 #define lookup_label                                                                                    \
     auto dest##_it = labels.find(instr.operands[0]);                                                    \
     if (dest##_it == labels.end())                                                                      \

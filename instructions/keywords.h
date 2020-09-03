@@ -28,6 +28,7 @@ namespace oops_bcode_compiler
             NEG,
             LI,
             CST,
+            RCVT,
             AND,
             OR,
             XOR,
@@ -121,6 +122,7 @@ namespace oops_bcode_compiler
             stringize(NEG);
             stringize(LI);
             stringize(CST);
+            stringize(RCVT);
             stringize(AND);
             stringize(OR);
             stringize(XOR);
